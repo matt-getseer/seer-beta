@@ -183,111 +183,21 @@ export const handleClerkWebhook = async (req: Request & { rawBody?: string }, re
 
     // Handle the user creation event
     if (eventType === 'user.created') {
+      // Auto user creation is disabled
+      console.log('Automatic user creation is disabled. User must be created manually.');
+      
+      // Log the user details for reference
       const userData = event.data;
       const userEmail = userData.email_addresses?.[0]?.email_address;
       const userName = userData.first_name
         ? `${userData.first_name} ${userData.last_name || ''}`
         : userData.username;
       const clerkId = userData.id;
-
-      console.log('Processing user creation:', { 
+      
+      console.log('User creation webhook received but not processed:', { 
         email: userEmail, 
         clerkId: clerkId?.substring(0, 5) + '...' // Log partial ID for privacy
       });
-
-      if (userEmail && clerkId) {
-        // Check if the user already exists by email OR clerkId
-        const existingUser = await prisma.user.findFirst({
-          where: {
-            OR: [
-              { email: userEmail },
-              { clerkId }
-            ]
-          }
-        });
-
-        if (existingUser) {
-          // If the user exists with this email but different clerkId, update the clerkId
-          if (existingUser.clerkId !== clerkId) {
-            try {
-              const updatedUser = await prisma.user.update({
-                where: { id: existingUser.id },
-                data: { clerkId }
-              });
-              console.log(`Updated clerkId for existing user: ${userEmail}`);
-            } catch (err) {
-              console.error('Error updating clerkId for existing user:', err);
-            }
-          } else {
-            console.log(`User with email ${userEmail} or clerkId already exists in the database`);
-          }
-        } else {
-          // User doesn't exist, create a new one
-          // Check if this is the first user (make them admin)
-          const userCount = await prisma.user.count();
-          const isFirstUser = userCount === 0;
-          console.log('User count:', userCount, 'Is first user:', isFirstUser);
-          
-          // Check if this was an invited user (by checking public metadata for inviter)
-          const inviterClerkId = userData.public_metadata?.invited_by;
-          let adminId = null;
-          
-          if (inviterClerkId && !isFirstUser) {
-            // Find the admin who invited this user
-            try {
-              const admin = await prisma.user.findUnique({
-                where: { clerkId: inviterClerkId as string }
-              });
-              
-              if (admin) {
-                // Check if the admin has already invited 3 users
-                try {
-                  const memberCount = await prisma.user.count({
-                    where: { adminId: admin.id }
-                  });
-                  
-                  if (memberCount < 3) {
-                    adminId = admin.id;
-                  } else {
-                    console.warn(`Admin ${admin.email} has already invited the maximum of 3 team members`);
-                  }
-                } catch (err) {
-                  console.error('Error counting team members:', err);
-                }
-              }
-            } catch (err) {
-              console.error('Error finding admin by clerkId:', err);
-            }
-          }
-
-          // Create the user in our database
-          try {
-            const newUser = await prisma.user.create({
-              data: {
-                email: userEmail,
-                name: userName?.trim() || null,
-                role: isFirstUser ? 'admin' : 'user',
-                clerkId,
-                adminId
-              }
-            });
-
-            console.log(`User successfully created in database:`, {
-              id: newUser.id,
-              email: newUser.email,
-              role: newUser.role,
-              isAdmin: newUser.role === 'admin'
-            });
-          } catch (err) {
-            console.error('Error creating user in database:', err);
-          }
-        }
-      } else {
-        console.error('Missing required user data:', { 
-          hasEmail: !!userEmail, 
-          hasClerkId: !!clerkId 
-        });
-      }
     } 
     // Handle user deletion event
     else if (eventType === 'user.deleted') {

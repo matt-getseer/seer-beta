@@ -6,6 +6,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { TrashSimple, Plus, MagnifyingGlass, CaretDown } from 'phosphor-react';
+import { Link } from 'react-router-dom';
 
 interface TeamMember extends User {
   lastSignedIn?: string;
@@ -154,29 +155,29 @@ const Team = () => {
       setIsInviting(true);
       setInviteError(null);
       
-      // In a real implementation, we would call an API endpoint to send an invitation
-      // For now, we'll just simulate the process
-      
       // Check if we can invite more members
       if (inviteStatus && !inviteStatus.canInvite) {
         setInviteError('You have reached the maximum number of team members.');
         return;
       }
       
-      // Clerk metadata setup would happen here
-      // The admin would call Clerk's invitation API with metadata
+      // Call the invitation API
+      const response = await userApi.sendInvitation(inviteEmail);
       
-      // TODO: Implement the actual invitation through Clerk
-      console.log(`Invitation would be sent to: ${inviteEmail}`);
+      // Update the invite status with the new counts
+      setInviteStatus(response.inviteStatus);
       
       // Reset the form and close the modal
       setInviteEmail('');
       setIsInviteModalOpen(false);
       
-      // In a real implementation, we'd update the inviteStatus after successful invitation
-    } catch (err) {
+      // Show success message (could use a toast notification here)
+      console.log(`Invitation sent to: ${inviteEmail}`);
+    } catch (err: any) {
       console.error('Failed to send invitation:', err);
-      setInviteError('Failed to send invitation. Please try again.');
+      // Extract error message from API response if available
+      const errorMessage = err.error || err.message || 'Failed to send invitation. Please try again.';
+      setInviteError(errorMessage);
     } finally {
       setIsInviting(false);
     }
@@ -200,7 +201,7 @@ const Team = () => {
       <div className="mb-4 border-b border-gray-200">
         <div className="flex -mb-px">
           <button
-            className={`mr-4 py-2 px-1 font-medium text-sm ${
+            className={`mr-4 py-2 px-1 font-medium text-base ${
               activeTab === 'all'
                 ? 'text-[#171717] border-b-2 border-[#171717]'
                 : 'text-gray-500 hover:text-gray-700'
@@ -210,7 +211,7 @@ const Team = () => {
             All
           </button>
           <button
-            className={`mr-4 py-2 px-1 font-medium text-sm ${
+            className={`mr-4 py-2 px-1 font-medium text-base ${
               activeTab === 'invitations'
                 ? 'text-[#171717] border-b-2 border-[#171717]'
                 : 'text-gray-500 hover:text-gray-700'
@@ -294,7 +295,11 @@ const Team = () => {
                         {member.name?.charAt(0) || member.email.charAt(0)}
                       </div>
                       <div className="ml-4">
-                        <div className="text-base font-medium text-[#171717]">{member.name || 'Unnamed User'}</div>
+                        <div className="text-base font-medium text-[#171717]">
+                          <Link to={`/team/${member.id}`} className="hover:text-indigo-600 hover:underline">
+                            {member.name || 'Unnamed User'}
+                          </Link>
+                        </div>
                         <div className="text-sm text-gray-500">{member.email}</div>
                         <div className="text-xs text-gray-400 mt-1">{member.role}</div>
                       </div>

@@ -14,16 +14,71 @@ datasource db {
 }
 
 model User {
-  id          String    @id @default(uuid())
-  email       String    @unique
-  name        String?
-  role        String    @default("user") // "admin" or "user"
-  clerkId     String    @unique
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                String    @id @default(uuid())
+  email             String    @unique
+  name              String?
+  role              String    @default("user") // "admin" or "user"
+  clerkId           String    @unique
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Google integration
+  googleConnected   Boolean   @default(false)
+  googleRefreshToken String?
   
   // Admin-team member relationship
-  adminId     String?   // Which admin invited this user (null for admins)
-  admin       User?     @relation("TeamMembers", fields: [adminId], references: [id], onDelete: SetNull)
-  teamMembers User[]    @relation("TeamMembers") // Team members this admin has invited
+  adminId           String?   // Which admin invited this user (null for admins)
+  admin             User?     @relation("TeamMembers", fields: [adminId], references: [id], onDelete: SetNull)
+  teamMembers       User[]    @relation("TeamMembers") // Team members this admin has invited
+  
+  // Invitations relationship
+  sentInvitations   TeamInvitation[] @relation("SentInvitations")
+  
+  // Meetings relationship
+  meetings          Meeting[]  @relation("UserMeetings")
+}
+
+model TeamInvitation {
+  id          String    @id @default(uuid())
+  email       String    
+  token       String    @unique
+  expires     DateTime
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  status      String    @default("pending") // "pending", "accepted", "rejected", "expired"
+  
+  // Admin who sent the invitation
+  inviterId   String
+  inviter     User      @relation("SentInvitations", fields: [inviterId], references: [id], onDelete: Cascade)
+  
+  @@unique([email, inviterId])
+}
+
+model Meeting {
+  id                String    @id @default(uuid())
+  title             String
+  teamMemberId      String    // This can be the User's id (team member)
+  date              DateTime
+  duration          Int       // Duration in minutes
+  status            String    @default("scheduled") // "scheduled", "completed", "cancelled"
+  
+  // MeetingBaas specific fields
+  googleMeetLink    String?
+  meetingBaasId     String?   @unique
+  processingStatus  String    @default("pending") // "pending", "processing", "completed", "failed"
+  recordingUrl      String?   // URL to the recorded meeting video
+  
+  // NLP Results
+  transcript        String?   @db.Text
+  executiveSummary  String?   @db.Text
+  wins              String[]  
+  areasForSupport   String[]
+  actionItems       String[]
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relations
+  createdBy         String    // User id who created this meeting
+  user              User      @relation("UserMeetings", fields: [createdBy], references: [id], onDelete: Cascade)
 }

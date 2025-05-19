@@ -1,9 +1,80 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import { useAuth } from '@clerk/clerk-react';
+
+// Use a direct URL reference instead of process.env
+const API_URL = 'http://localhost:3001';
 
 const Settings = () => {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const { getToken } = useAuth();
+
+  useEffect(() => {
+    // Check if Google account is connected
+    const checkGoogleConnection = async () => {
+      try {
+        setLoading(true);
+        const token = await getToken();
+        const response = await axios.get(`${API_URL}/api/auth/google/status`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          withCredentials: true // Include cookies
+        });
+        setGoogleConnected(response.data.connected);
+      } catch (error) {
+        console.error('Error checking Google connection:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkGoogleConnection();
+  }, [getToken]);
+
+  const handleGoogleAuth = async () => {
+    if (googleConnected) {
+      // Disconnect Google account
+      try {
+        const token = await getToken();
+        await axios.post(`${API_URL}/api/auth/google/disconnect`, {}, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          withCredentials: true // Include cookies
+        });
+        setGoogleConnected(false);
+      } catch (error) {
+        console.error('Error disconnecting Google account:', error);
+      }
+    } else {
+      // Connect Google account - get token first
+      try {
+        setLoading(true);
+        const token = await getToken();
+        
+        // First send token to backend to store in session
+        const response = await axios.post(`${API_URL}/api/auth/google/prepare`, { token }, { 
+          withCredentials: true // Include cookies
+        });
+        
+        // Then redirect to Google OAuth URL
+        if (response.data.authUrl) {
+          window.location.href = response.data.authUrl;
+        } else {
+          console.error('No auth URL returned from server');
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Error starting Google auth flow:', error);
+        setLoading(false);
+      }
+    }
+  };
 
   return (
     <div>
@@ -42,6 +113,33 @@ const Settings = () => {
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${pushNotifications ? 'translate-x-6' : 'translate-x-1'}`} 
                 />
               </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6">
+          <h2 className="text-lg font-medium text-[#171717] mb-4">Integrations</h2>
+          
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium text-[#171717]">Google Calendar</h3>
+                <p className="text-sm text-gray-500">Connect your Google account to create Google Meet links for meetings</p>
+              </div>
+              {loading ? (
+                <div className="animate-pulse h-10 w-24 bg-gray-200 rounded-md"></div>
+              ) : (
+                <button 
+                  onClick={handleGoogleAuth}
+                  className={`px-4 py-2 rounded-md text-sm font-medium ${
+                    googleConnected 
+                      ? 'bg-red-50 text-red-700 hover:bg-red-100' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {googleConnected ? 'Disconnect' : 'Connect'}
+                </button>
+              )}
             </div>
           </div>
         </div>

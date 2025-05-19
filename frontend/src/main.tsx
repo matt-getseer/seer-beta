@@ -13,6 +13,8 @@ import Overview from './components/pages/Overview.tsx'
 import Team from './components/pages/Team.tsx'
 import Meetings from './components/pages/Meetings.tsx'
 import Settings from './components/pages/Settings.tsx'
+import MeetingOverview from './components/pages/MeetingOverview.tsx'
+import TeamMember from './components/pages/TeamMember.tsx'
 
 // Import layout
 import MainLayout from './components/layout/MainLayout.tsx'
@@ -48,9 +50,19 @@ createRoot(document.getElementById('root')!).render(
               <Team />
             </MainLayout>
           } />
+          <Route path="/team/:id" element={
+            <MainLayout>
+              <TeamMember />
+            </MainLayout>
+          } />
           <Route path="/meetings" element={
             <MainLayout>
               <Meetings />
+            </MainLayout>
+          } />
+          <Route path="/meetings/:id" element={
+            <MainLayout>
+              <MeetingOverview />
             </MainLayout>
           } />
           <Route path="/settings" element={

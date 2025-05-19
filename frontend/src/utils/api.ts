@@ -97,6 +97,14 @@ export interface InviteStatus {
   canInvite: boolean;
   currentCount: number;
   remainingInvites: number;
+  pendingInvitations?: number;
+}
+
+// Invitation response
+export interface InvitationResponse {
+  success: boolean;
+  message: string;
+  inviteStatus: InviteStatus;
 }
 
 // User API functions
@@ -163,6 +171,22 @@ export const userApi = {
   removeTeamMember: async (userId: number): Promise<void> => {
     return fetchApi<void>(`/api/users/team-members/${userId}`, {
       method: 'DELETE',
+    });
+  },
+  
+  // Send an invitation email to a new team member
+  sendInvitation: async (email: string): Promise<InvitationResponse> => {
+    return fetchApi<InvitationResponse>('/api/users/invite', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+  
+  // Accept an invitation using a token
+  acceptInvitation: async (token: string, clerkId: string): Promise<{ success: boolean; message: string; user: User }> => {
+    return fetchApi<{ success: boolean; message: string; user: User }>('/api/users/invite/accept', {
+      method: 'POST',
+      body: JSON.stringify({ token, clerkId }),
     });
   }
 };

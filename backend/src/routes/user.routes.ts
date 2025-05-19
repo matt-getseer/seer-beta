@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { Request, Response, NextFunction } from 'express';
 import { authenticate, requireAuth, isAdmin } from '../middleware/auth.middleware';
+import { sendInvitationEmail } from '../services/email.service';
+import { generateInvitationToken, calculateExpiryDate } from '../utils/token.utils';
 
 // Extend the Express Request type to include user property
 declare global {
@@ -199,6 +201,260 @@ router.get('/can-invite', isAdmin, async (req: Request, res: Response) => {
     console.error('Error checking invitation ability:', error);
     res.status(500).json({ 
       error: 'Error checking invitation ability',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Send an invitation to join a team
+router.post('/invite', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    const adminId = req.user?.id;
+    
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    
+    // Verify the admin can invite more users
+    const memberCount = await prisma.user.count({
+      where: { adminId }
+    });
+    
+    if (memberCount >= 3) {
+      return res.status(403).json({ 
+        error: 'You have reached the maximum number of team members',
+        canInvite: false,
+        currentCount: memberCount,
+        remainingInvites: 0
+      });
+    }
+    
+    // Check if the user is already part of this team
+    const existingMember = await prisma.user.findFirst({
+      where: {
+        email,
+        adminId
+      }
+    });
+    
+    if (existingMember) {
+      return res.status(400).json({ error: 'This user is already a member of your team' });
+    }
+    
+    // Check if there's an existing pending invitation
+    const existingInvitation = await prisma.teamInvitation.findFirst({
+      where: {
+        email,
+        inviterId: adminId,
+        status: 'pending',
+        expires: { gt: new Date() }
+      }
+    });
+    
+    if (existingInvitation) {
+      return res.status(400).json({ error: 'A pending invitation already exists for this email' });
+    }
+    
+    // Get the admin user for the invitation email
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId }
+    });
+    
+    if (!admin) {
+      return res.status(404).json({ error: 'Admin user not found' });
+    }
+    
+    // Generate a token and create an invitation
+    const token = generateInvitationToken();
+    const expires = calculateExpiryDate(7); // 7 days
+    
+    const invitation = await prisma.teamInvitation.create({
+      data: {
+        email,
+        token,
+        expires,
+        inviterId: adminId,
+        status: 'pending'
+      }
+    });
+    
+    // Send the invitation email
+    const emailSent = await sendInvitationEmail(
+      email,
+      admin.name || 'Your colleague',
+      token
+    );
+    
+    if (!emailSent) {
+      // If email fails, still create the invitation but return a warning
+      return res.status(207).json({
+        invitation,
+        warning: 'Invitation created but email failed to send'
+      });
+    }
+    
+    // Return the updated invitation count along with success message
+    const updatedMemberCount = await prisma.user.count({
+      where: { adminId }
+    });
+    
+    const pendingInvitationsCount = await prisma.teamInvitation.count({
+      where: {
+        inviterId: adminId,
+        status: 'pending',
+        expires: { gt: new Date() }
+      }
+    });
+    
+    res.status(201).json({
+      success: true,
+      message: `Invitation sent to ${email}`,
+      inviteStatus: {
+        canInvite: (updatedMemberCount + pendingInvitationsCount) < 3,
+        currentCount: updatedMemberCount,
+        pendingInvitations: pendingInvitationsCount,
+        remainingInvites: 3 - updatedMemberCount - pendingInvitationsCount
+      }
+    });
+  } catch (error) {
+    console.error('Error sending invitation:', error);
+    res.status(500).json({ 
+      error: 'Error sending invitation',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Accept an invitation
+router.post('/invite/accept', async (req: Request, res: Response) => {
+  try {
+    const { token, clerkId } = req.body;
+    
+    if (!token) {
+      return res.status(400).json({ error: 'Token is required' });
+    }
+    
+    if (!clerkId) {
+      return res.status(400).json({ error: 'User authentication is required' });
+    }
+    
+    // Find the invitation
+    const invitation = await prisma.teamInvitation.findUnique({
+      where: {
+        token,
+        status: 'pending',
+        expires: { gt: new Date() }
+      },
+      include: {
+        inviter: true
+      }
+    });
+    
+    if (!invitation) {
+      return res.status(404).json({ error: 'Invalid or expired invitation' });
+    }
+    
+    // Find or create the user
+    let user = await prisma.user.findFirst({
+      where: { clerkId }
+    });
+    
+    // If the user doesn't exist, create them
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: invitation.email,
+          clerkId,
+          role: 'user',
+          adminId: invitation.inviterId
+        }
+      });
+    } else {
+      // If the user exists, update their adminId
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { adminId: invitation.inviterId }
+      });
+    }
+    
+    // Update the invitation status
+    await prisma.teamInvitation.update({
+      where: { id: invitation.id },
+      data: { status: 'accepted' }
+    });
+    
+    res.json({
+      success: true,
+      message: 'Invitation accepted',
+      user
+    });
+  } catch (error) {
+    console.error('Error accepting invitation:', error);
+    res.status(500).json({ 
+      error: 'Error accepting invitation',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Get team members for meetings (used by the meeting creation form)
+router.get('/team', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+    
+    // Get user role
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+    
+    if (!currentUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    let teamMembers = [];
+    
+    if (currentUser.role === 'admin') {
+      // For admins, get their team members
+      teamMembers = await prisma.user.findMany({
+        where: { 
+          OR: [
+            { adminId: userId },
+            { id: userId } // Include the admin themselves
+          ]
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      });
+    } else {
+      // For regular users, just return themselves and their admin
+      teamMembers = await prisma.user.findMany({
+        where: {
+          OR: [
+            { id: userId },
+            { id: currentUser.adminId || '' } // Include their admin if they have one
+          ]
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      });
+    }
+    
+    res.json(teamMembers);
+  } catch (error) {
+    console.error('Error fetching team:', error);
+    res.status(500).json({ 
+      error: 'Error fetching team',
       details: error instanceof Error ? error.message : String(error)
     });
   }
