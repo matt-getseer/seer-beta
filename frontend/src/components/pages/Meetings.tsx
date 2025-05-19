@@ -20,6 +20,14 @@ interface Meeting {
   googleMeetLink?: string;
 }
 
+// User interface
+interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+}
+
 const Meetings = () => {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +35,27 @@ const Meetings = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const { getToken } = useAuth();
+  
+  // Fetch current user data
+  const fetchCurrentUser = async () => {
+    try {
+      const token = await getToken();
+      
+      const response = await axios.get(`${API_URL}/api/users/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      setCurrentUser(response.data);
+      setIsAdmin(response.data.role === 'admin');
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+    }
+  };
   
   // Fetch meetings from API
   const fetchMeetings = async () => {
@@ -81,6 +109,7 @@ const Meetings = () => {
   };
   
   useEffect(() => {
+    fetchCurrentUser();
     fetchMeetings();
   }, []);
   
@@ -203,13 +232,15 @@ const Meetings = () => {
             </button>
           </div>
           
-          <button
-            className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            onClick={() => setShowNewMeetingModal(true)}
-          >
-            <Plus size={20} className="mr-2" />
-            New Meeting
-          </button>
+          {isAdmin && (
+            <button
+              className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              onClick={() => setShowNewMeetingModal(true)}
+            >
+              <Plus size={20} className="mr-2" />
+              New Meeting
+            </button>
+          )}
         </div>
       </div>
       

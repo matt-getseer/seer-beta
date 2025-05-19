@@ -39,6 +39,7 @@ export class MeetingBaasService {
     scheduledTime: Date;
     duration: number;
     userId?: string; // Add userId parameter to find user-specific refresh token
+    teamMemberId?: string; // Add teamMemberId parameter
   }): Promise<MeetingBaasResponse> {
     try {
       // First, create a Google Meet using Google Calendar API
@@ -86,6 +87,7 @@ export class MeetingBaasService {
     scheduledTime: Date;
     duration: number;
     userId?: string;
+    teamMemberId?: string; // Add teamMemberId parameter
   }): Promise<string> {
     try {
       // Try to get the user's refresh token if userId is provided
@@ -130,8 +132,31 @@ export class MeetingBaasService {
       const endTime = new Date(meetingData.scheduledTime);
       endTime.setMinutes(endTime.getMinutes() + meetingData.duration);
       
+      // Get team member's email if teamMemberId is provided
+      let teamMemberEmail = null;
+      if (meetingData.teamMemberId) {
+        try {
+          console.log(`Attempting to fetch email for team member with ID: ${meetingData.teamMemberId}`);
+          const teamMember = await prisma.user.findUnique({
+            where: { id: meetingData.teamMemberId },
+            select: { email: true, name: true }
+          });
+          
+          if (teamMember) {
+            teamMemberEmail = teamMember.email;
+            console.log(`Found team member email: ${teamMemberEmail}`);
+          } else {
+            console.warn(`Team member with ID ${meetingData.teamMemberId} not found`);
+          }
+        } catch (err) {
+          console.warn('Error fetching team member email:', err);
+        }
+      } else {
+        console.log('No teamMemberId provided, skipping attendee');
+      }
+      
       // Create calendar event with Google Meet
-      const event = {
+      const event: any = {
         summary: meetingData.title,
         start: {
           dateTime: meetingData.scheduledTime.toISOString(),
@@ -147,11 +172,22 @@ export class MeetingBaasService {
         }
       };
       
+      // Add attendees if team member email is available
+      if (teamMemberEmail) {
+        console.log(`Adding attendee: ${teamMemberEmail}`);
+        event.attendees = [{ email: teamMemberEmail }];
+      }
+      
+      console.log('Calendar event payload:', JSON.stringify(event, null, 2));
+      
       const response = await calendar.events.insert({
         calendarId: GOOGLE_CALENDAR_ID,
         conferenceDataVersion: 1,
         requestBody: event,
+        sendUpdates: 'all' // This will send email notifications to attendees
       });
+      
+      console.log('Calendar API response:', JSON.stringify(response.data, null, 2));
       
       // Extract Google Meet link
       const meetLink = response.data.conferenceData?.entryPoints?.find(

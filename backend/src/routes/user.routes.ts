@@ -403,6 +403,8 @@ router.get('/team', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     
+    console.log(`Fetching team members for user: ${userId}`);
+    
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
@@ -415,6 +417,8 @@ router.get('/team', requireAuth, async (req: Request, res: Response) => {
     if (!currentUser) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    console.log(`User role: ${currentUser.role}, adminId: ${currentUser.adminId || 'none'}`);
     
     let teamMembers = [];
     
@@ -449,6 +453,9 @@ router.get('/team', requireAuth, async (req: Request, res: Response) => {
         }
       });
     }
+    
+    console.log(`Found ${teamMembers.length} team members`);
+    console.log('Team members:', JSON.stringify(teamMembers, null, 2));
     
     res.json(teamMembers);
   } catch (error) {

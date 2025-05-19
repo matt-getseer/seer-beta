@@ -7,7 +7,7 @@ import {
   deleteMeeting,
   handleMeetingCompleted
 } from '../controllers/meeting.controller';
-import { authenticate } from '../middleware/auth.middleware';
+import { authenticate, requireAuth, isAdmin } from '../middleware/auth.middleware';
 import { verifyMeetingBaasWebhook } from '../middleware/webhookAuth.middleware';
 
 const router = express.Router();
@@ -20,20 +20,22 @@ router.use((req, res, next) => {
   return authenticate(req, res, next);
 });
 
+// Read operations - accessible to all authenticated users
 // Get all meetings
-router.get('/', getMeetings);
+router.get('/', requireAuth, getMeetings);
 
 // Get a specific meeting
-router.get('/:id', getMeetingById);
+router.get('/:id', requireAuth, getMeetingById);
 
-// Create a meeting
-router.post('/', createMeeting);
+// Write operations - accessible only to admins
+// Create a meeting - only admin can create meetings
+router.post('/', isAdmin, createMeeting);
 
-// Update a meeting
-router.put('/:id', updateMeeting);
+// Update a meeting - only admin can update meetings
+router.put('/:id', isAdmin, updateMeeting);
 
-// Delete a meeting
-router.delete('/:id', deleteMeeting);
+// Delete a meeting - only admin can delete meetings
+router.delete('/:id', isAdmin, deleteMeeting);
 
 // Webhook endpoint for meeting completion
 // Apply webhook verification middleware

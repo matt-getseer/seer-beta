@@ -10,19 +10,82 @@ const prisma = new PrismaClient();
 export const getMeetings = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    const userRole = req.user?.role;
+    const userEmail = req.user?.email;
     
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
     
-    const meetings = await prisma.meeting.findMany({
-      where: {
-        createdBy: userId
-      },
-      orderBy: {
-        date: 'desc'
+    console.log(`Getting meetings for user: ${userId}, email: ${userEmail}, role: ${userRole}`);
+    
+    // For debugging, let's get all meetings to see what's available
+    const allMeetings = await prisma.meeting.findMany();
+    console.log(`Total meetings in system: ${allMeetings.length}`);
+    
+    // For debugging - log team members
+    for (const meeting of allMeetings) {
+      console.log(`Meeting ${meeting.id}: title=${meeting.title}, teamMemberId=${meeting.teamMemberId}, createdBy=${meeting.createdBy}`);
+    }
+    
+    // Also get all users to debug ID matching
+    const allUsers = await prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        role: true
       }
     });
+    console.log('All users:', JSON.stringify(allUsers, null, 2));
+    
+    let meetings;
+    
+    // If user is admin, show all meetings
+    if (userRole === 'admin') {
+      meetings = await prisma.meeting.findMany({
+        orderBy: {
+          date: 'desc'
+        }
+      });
+      console.log(`Found ${meetings.length} meetings for admin user`);
+    } else {
+      // For regular users
+      // First, find meetings the user created
+      const createdMeetings = await prisma.meeting.findMany({
+        where: {
+          createdBy: userId
+        }
+      });
+      console.log(`Found ${createdMeetings.length} meetings created by the user`);
+      
+      // Then, find meetings where the user is the team member
+      const invitedToMeetings = await prisma.meeting.findMany({
+        where: {
+          teamMemberId: userId
+        }
+      });
+      console.log(`Found ${invitedToMeetings.length} meetings where user is teamMember`);
+      
+      // Combine the results, removing duplicates
+      const meetingsMap = new Map();
+      
+      // Add created meetings
+      createdMeetings.forEach(meeting => {
+        meetingsMap.set(meeting.id, meeting);
+      });
+      
+      // Add invited meetings
+      invitedToMeetings.forEach(meeting => {
+        meetingsMap.set(meeting.id, meeting);
+      });
+      
+      // Convert back to array and sort
+      meetings = Array.from(meetingsMap.values()).sort((a, b) => {
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+      });
+      
+      console.log(`Returning ${meetings.length} total meetings for the user`);
+    }
     
     return res.status(200).json(meetings);
   } catch (error) {
@@ -40,16 +103,19 @@ export const getMeetings = async (req: Request, res: Response) => {
 export const getMeetingById = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    const userRole = req.user?.role;
     const meetingId = req.params.id;
     
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
     
+    console.log(`Getting meeting ${meetingId} for user: ${userId}, role: ${userRole}`);
+    
+    // First, find the meeting
     const meeting = await prisma.meeting.findUnique({
       where: {
-        id: meetingId,
-        createdBy: userId
+        id: meetingId
       }
     });
     
@@ -57,7 +123,20 @@ export const getMeetingById = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Meeting not found' });
     }
     
-    return res.status(200).json(meeting);
+    console.log(`Found meeting: ${meeting.id}, createdBy: ${meeting.createdBy}, teamMemberId: ${meeting.teamMemberId}`);
+    
+    // Check if user has access to this meeting
+    if (userRole === 'admin') {
+      // Admin can access any meeting
+      return res.status(200).json(meeting);
+    } else {
+      // Regular users can only access meetings they created or were invited to
+      if (meeting.createdBy === userId || meeting.teamMemberId === userId) {
+        return res.status(200).json(meeting);
+      } else {
+        return res.status(403).json({ error: 'You do not have access to this meeting' });
+      }
+    }
   } catch (error) {
     console.error('Error getting meeting:', error);
     return res.status(500).json({ 
@@ -104,13 +183,18 @@ export const createMeeting = async (req: Request, res: Response) => {
     // Create meeting with MeetingBaas
     const meetingDate = new Date(date);
     try {
+      console.log(`Creating meeting with title: "${title}", teamMemberId: "${teamMemberId}", date: ${meetingDate}, duration: ${duration}`);
+      
       // Create meeting in MeetingBaas
       const meetingBaasResponse = await MeetingBaasService.createMeeting({
         title,
         scheduledTime: meetingDate,
         duration: Number(duration),
-        userId
+        userId,
+        teamMemberId
       });
+      
+      console.log(`MeetingBaas response: ${JSON.stringify(meetingBaasResponse)}`);
       
       // Create meeting in our database
       const meeting = await prisma.meeting.create({
@@ -155,17 +239,22 @@ export const createMeeting = async (req: Request, res: Response) => {
 export const updateMeeting = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    const userRole = req.user?.role;
     const meetingId = req.params.id;
     
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
     
-    // Check if meeting exists and belongs to user
+    // Only admins can update meetings
+    if (userRole !== 'admin') {
+      return res.status(403).json({ error: 'Only administrators can update meetings' });
+    }
+    
+    // Check if meeting exists
     const existingMeeting = await prisma.meeting.findUnique({
       where: {
-        id: meetingId,
-        createdBy: userId
+        id: meetingId
       }
     });
     
@@ -195,17 +284,22 @@ export const updateMeeting = async (req: Request, res: Response) => {
 export const deleteMeeting = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
+    const userRole = req.user?.role;
     const meetingId = req.params.id;
     
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
     
-    // Check if meeting exists and belongs to user
+    // Only admins can delete meetings
+    if (userRole !== 'admin') {
+      return res.status(403).json({ error: 'Only administrators can delete meetings' });
+    }
+    
+    // Check if meeting exists
     const existingMeeting = await prisma.meeting.findUnique({
       where: {
-        id: meetingId,
-        createdBy: userId
+        id: meetingId
       }
     });
     
