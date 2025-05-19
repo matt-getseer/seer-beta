@@ -1,0 +1,480 @@
+import { useState, useEffect } from 'react';
+import { useUser } from '@clerk/clerk-react';
+import { userApi } from '../../utils/api';
+import type { User, InviteStatus } from '../../utils/api';
+import { formatDistanceToNow } from 'date-fns';
+import { Dialog, Transition } from '@headlessui/react';
+import { Fragment } from 'react';
+import { TrashSimple, Plus, MagnifyingGlass, CaretDown } from 'phosphor-react';
+
+interface TeamMember extends User {
+  lastSignedIn?: string;
+}
+
+const Team = () => {
+  const { user, isSignedIn } = useUser();
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [inviteStatus, setInviteStatus] = useState<InviteStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  
+  // For delete confirmation dialog
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [memberToDelete, setMemberToDelete] = useState<TeamMember | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  // For invite dialog
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [isInviting, setIsInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // First check if current user is admin
+        if (isSignedIn) {
+          // In a real implementation, we'd use the Clerk user ID to fetch user details
+          // including their role from our backend
+          const users = await userApi.getUsers();
+          const currentUser = users.find(u => u.email === user?.primaryEmailAddress?.emailAddress);
+          
+          if (currentUser?.role === 'admin') {
+            setIsAdmin(true);
+            
+            // Fetch team members and invite status
+            const [members, status] = await Promise.all([
+              userApi.getTeamMembers(),
+              userApi.getInviteStatus()
+            ]);
+            
+            // Transform the data to match our component's needs
+            const formattedMembers = members.map(member => ({
+              ...member,
+              // In a real app, you might have a lastSignedIn field
+              // For now, we'll just use the updatedAt as a placeholder
+              lastSignedIn: member.updatedAt,
+            }));
+            
+            setTeamMembers(formattedMembers);
+            setInviteStatus(status);
+          } else {
+            // Regular users just see all users
+            const users = await userApi.getUsers();
+            
+            const formattedUsers = users.map(user => ({
+              ...user,
+              lastSignedIn: user.updatedAt,
+            }));
+            
+            setTeamMembers(formattedUsers);
+          }
+        } else {
+          // Fallback to fetch all users if not signed in
+          const users = await userApi.getUsers();
+          
+          const formattedUsers = users.map(user => ({
+            ...user,
+            lastSignedIn: user.updatedAt,
+          }));
+          
+          setTeamMembers(formattedUsers);
+        }
+        
+        setError(null);
+      } catch (err) {
+        console.error('Failed to fetch team data:', err);
+        setError('Failed to load team data. Please try again later.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [isSignedIn, user]);
+
+  // Helper function to format dates
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return formatDistanceToNow(date, { addSuffix: true });
+    } catch (err) {
+      return dateString;
+    }
+  };
+  
+  // Open delete confirmation modal
+  const confirmDelete = (member: TeamMember) => {
+    setMemberToDelete(member);
+    setIsDeleteModalOpen(true);
+  };
+  
+  // Handle team member deletion
+  const handleDeleteMember = async () => {
+    if (!memberToDelete) return;
+    
+    try {
+      setIsDeleting(true);
+      await userApi.removeTeamMember(memberToDelete.id);
+      
+      // Update the UI
+      setTeamMembers(prev => prev.filter(member => member.id !== memberToDelete.id));
+      
+      // Update invite status
+      if (inviteStatus) {
+        setInviteStatus({
+          ...inviteStatus,
+          currentCount: inviteStatus.currentCount - 1,
+          remainingInvites: inviteStatus.remainingInvites + 1,
+          canInvite: true
+        });
+      }
+      
+      // Close the modal
+      setIsDeleteModalOpen(false);
+      setMemberToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete team member:', err);
+      setError('Failed to remove team member. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+  
+  // Handle invitation
+  const handleSendInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    
+    try {
+      setIsInviting(true);
+      setInviteError(null);
+      
+      // In a real implementation, we would call an API endpoint to send an invitation
+      // For now, we'll just simulate the process
+      
+      // Check if we can invite more members
+      if (inviteStatus && !inviteStatus.canInvite) {
+        setInviteError('You have reached the maximum number of team members.');
+        return;
+      }
+      
+      // Clerk metadata setup would happen here
+      // The admin would call Clerk's invitation API with metadata
+      
+      // TODO: Implement the actual invitation through Clerk
+      console.log(`Invitation would be sent to: ${inviteEmail}`);
+      
+      // Reset the form and close the modal
+      setInviteEmail('');
+      setIsInviteModalOpen(false);
+      
+      // In a real implementation, we'd update the inviteStatus after successful invitation
+    } catch (err) {
+      console.error('Failed to send invitation:', err);
+      setInviteError('Failed to send invitation. Please try again.');
+    } finally {
+      setIsInviting(false);
+    }
+  };
+  
+  // Filter team members based on search term
+  const filteredTeamMembers = teamMembers.filter(member => {
+    const searchTermLower = searchTerm.toLowerCase();
+    return (
+      member.name?.toLowerCase().includes(searchTermLower) ||
+      member.email.toLowerCase().includes(searchTermLower) ||
+      member.role.toLowerCase().includes(searchTermLower)
+    );
+  });
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold text-[#171717] mb-6">Team</h1>
+      
+      {/* Tabs */}
+      <div className="mb-4 border-b border-gray-200">
+        <div className="flex -mb-px">
+          <button
+            className={`mr-4 py-2 px-1 font-medium text-sm ${
+              activeTab === 'all'
+                ? 'text-[#171717] border-b-2 border-[#171717]'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            onClick={() => setActiveTab('all')}
+          >
+            All
+          </button>
+          <button
+            className={`mr-4 py-2 px-1 font-medium text-sm ${
+              activeTab === 'invitations'
+                ? 'text-[#171717] border-b-2 border-[#171717]'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            onClick={() => setActiveTab('invitations')}
+          >
+            Invitations
+          </button>
+        </div>
+      </div>
+      
+      {/* Search and Actions */}
+      <div className="flex justify-between items-center mb-4">
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <MagnifyingGlass size={20} className="text-gray-400" />
+          </div>
+          <input
+            type="text"
+            placeholder="Search"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+        
+        <div className="flex items-center">
+          <div className="relative inline-block text-left mr-3">
+            <button className="inline-flex justify-between items-center w-48 rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">
+              <span>Sort by: Created</span>
+              <CaretDown size={20} weight="fill" />
+            </button>
+          </div>
+          
+          {isAdmin && (
+            <button
+              className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => setIsInviteModalOpen(true)}
+              disabled={inviteStatus ? !inviteStatus.canInvite : false}
+            >
+              <Plus size={20} className="mr-2" />
+              Invite team member
+              {inviteStatus && ` (${inviteStatus.remainingInvites} left)`}
+            </button>
+          )}
+        </div>
+      </div>
+      
+      {/* Table */}
+      <div className="bg-white shadow rounded-lg overflow-hidden">
+        {loading ? (
+          <div className="p-6 text-center">
+            <p className="text-gray-500">Loading users...</p>
+          </div>
+        ) : error ? (
+          <div className="p-6 text-center text-red-500">
+            <p>{error}</p>
+          </div>
+        ) : filteredTeamMembers.length === 0 ? (
+          <div className="p-6 text-center">
+            <p className="text-gray-500">No team members found.</p>
+          </div>
+        ) : (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last signed in</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                {isAdmin && (
+                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredTeamMembers.map((member) => (
+                <tr key={member.id}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
+                        {member.name?.charAt(0) || member.email.charAt(0)}
+                      </div>
+                      <div className="ml-4">
+                        <div className="text-base font-medium text-[#171717]">{member.name || 'Unnamed User'}</div>
+                        <div className="text-sm text-gray-500">{member.email}</div>
+                        <div className="text-xs text-gray-400 mt-1">{member.role}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                    {member.lastSignedIn ? formatDate(member.lastSignedIn) : 'Never'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                    {formatDate(member.createdAt)}
+                  </td>
+                  {isAdmin && (
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      {member.adminId === null ? (
+                        <span className="text-gray-400 italic">Admin</span>
+                      ) : (
+                        <button
+                          onClick={() => confirmDelete(member)}
+                          className="text-red-600 hover:text-red-900"
+                          title="Remove team member"
+                        >
+                          <TrashSimple size={20} />
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      
+      {/* Delete Confirmation Dialog */}
+      <Transition appear show={isDeleteModalOpen} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={() => setIsDeleteModalOpen(false)}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-black bg-opacity-25" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4 text-center">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
+              >
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+                  <Dialog.Title
+                    as="h3"
+                    className="text-lg font-medium leading-6 text-gray-900"
+                  >
+                    Remove Team Member
+                  </Dialog.Title>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to remove <strong>{memberToDelete?.name || memberToDelete?.email}</strong> from your team? This action cannot be undone.
+                    </p>
+                  </div>
+
+                  <div className="mt-4 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
+                      onClick={() => setIsDeleteModalOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50"
+                      onClick={handleDeleteMember}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? 'Removing...' : 'Remove'}
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
+            </div>
+          </div>
+        </Dialog>
+      </Transition>
+      
+      {/* Invite Team Member Dialog */}
+      <Transition appear show={isInviteModalOpen} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={() => setIsInviteModalOpen(false)}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-black bg-opacity-25" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4 text-center">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
+              >
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+                  <Dialog.Title
+                    as="h3"
+                    className="text-lg font-medium leading-6 text-gray-900"
+                  >
+                    Invite Team Member
+                  </Dialog.Title>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500 mb-4">
+                      Enter the email address of the person you want to invite to your team.
+                    </p>
+                    
+                    <div className="mb-4">
+                      <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        id="email"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="colleague@example.com"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                      />
+                    </div>
+                    
+                    {inviteError && (
+                      <div className="mb-4 text-sm text-red-600">
+                        {inviteError}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
+                      onClick={() => setIsInviteModalOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50"
+                      onClick={handleSendInvite}
+                      disabled={isInviting || !inviteEmail.trim()}
+                    >
+                      {isInviting ? 'Sending...' : 'Send Invitation'}
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
+            </div>
+          </div>
+        </Dialog>
+      </Transition>
+    </div>
+  );
+};
+
+export default Team; 
