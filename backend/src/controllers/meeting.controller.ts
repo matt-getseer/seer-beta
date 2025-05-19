@@ -78,7 +78,7 @@ export const createMeeting = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'User not authenticated' });
     }
     
-    const { title, teamMemberId, date, duration } = req.body;
+    const { title, teamMemberId, date, duration, meetingType } = req.body;
     
     // Validate required fields
     if (!title || !teamMemberId || !date || !duration) {
@@ -124,10 +124,11 @@ export const createMeeting = async (req: Request, res: Response) => {
           googleMeetLink: meetingBaasResponse.googleMeetLink,
           meetingBaasId: meetingBaasResponse.id,
           createdBy: userId,
+          meetingType: "one_on_one",
           wins: [],
           areasForSupport: [],
           actionItems: []
-        }
+        } as any
       });
       
       return res.status(201).json(meeting);

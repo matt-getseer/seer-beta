@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { google } from 'googleapis';
+import { NLPService, MeetingType } from './nlp.service';
 
 const prisma = new PrismaClient();
 const MEETINGBAAS_API_URL = process.env.MEETINGBAAS_API_URL || 'https://api.meetingbaas.com';
@@ -196,84 +197,130 @@ export class MeetingBaasService {
   /**
    * Process recording with NLP
    */
-  static async processRecording(meetingBaasId: string, webhookData?: any): Promise<NLPResult> {
+  static async processRecording(meetingBaasId: string, webhookData?: any): Promise<any> {
     try {
+      // Find the meeting to get its ID
+      const meeting = await prisma.meeting.findUnique({
+        where: { meetingBaasId },
+        select: {
+          id: true,
+          title: true
+          // We no longer need to select meetingType since we always use ONE_ON_ONE
+        }
+      });
+      
+      if (!meeting) {
+        throw new Error(`Meeting with MeetingBaasId ${meetingBaasId} not found`);
+      }
+
       // Update meeting status to processing
       await prisma.meeting.update({
         where: { meetingBaasId },
         data: { processingStatus: 'processing' }
       });
 
+      // Extract transcript from webhook data or API
+      let transcript = '';
+      
       // Check if we have webhook data from the "complete" event
       if (webhookData && webhookData.transcript) {
         console.log('Using transcript data from webhook payload');
         
         // Convert the webhook transcript format to a simple text string
-        let transcriptText = '';
         if (Array.isArray(webhookData.transcript)) {
           webhookData.transcript.forEach((segment: any) => {
             if (segment.speaker && segment.words) {
-              transcriptText += `${segment.speaker}: `;
+              transcript += `${segment.speaker}: `;
               segment.words.forEach((word: any) => {
-                transcriptText += word.word;
+                transcript += word.word;
               });
-              transcriptText += '\n';
+              transcript += '\n';
             }
           });
         }
+      } else {
+        // Fallback to API call if no webhook data is provided
+        console.log('No transcript in webhook data, fetching from MeetingBaas API');
         
-        // For the initial implementation, we'll use simplified values for the summary
-        // since we're not calling the API for the NLP processing
-        return {
-          transcript: transcriptText,
-          executiveSummary: `Recording captured on ${new Date().toLocaleDateString()}`,
-          wins: ["Meeting successfully recorded"],
-          areasForSupport: [],
-          actionItems: []
-        };
+        // Get recording and transcript from MeetingBaas
+        const response = await axios.get(
+          `${MEETINGBAAS_API_URL}/bots/${meetingBaasId}/recording`,
+          {
+            headers: {
+              'x-meeting-baas-api-key': MEETINGBAAS_API_KEY
+            }
+          }
+        );
+
+        transcript = response.data.transcript || '';
       }
       
-      // Fallback to API calls if no webhook data is provided
-      // Get recording and transcript from MeetingBaas
-      const response = await axios.get(
-        `${MEETINGBAAS_API_URL}/bots/${meetingBaasId}/recording`,
-        {
-          headers: {
-            'x-meeting-baas-api-key': MEETINGBAAS_API_KEY
-          }
-        }
-      );
-
-      const transcript = response.data.transcript || '';
+      // Determine meeting type (default to DEFAULT if not specified)
+      const meetingType = this.determineMeetingType(meeting);
       
-      // Process the transcript with NLP
-      const nlpResponse = await axios.get(
-        `${MEETINGBAAS_API_URL}/bots/${meetingBaasId}/summary`,
-        {
-          headers: {
-            'x-meeting-baas-api-key': MEETINGBAAS_API_KEY
-          }
-        }
-      );
-
-      return {
+      // Process transcript with our custom NLP service
+      return await NLPService.processMeetingTranscript(
+        meeting.id,
         transcript,
-        executiveSummary: nlpResponse.data.summary || '',
-        wins: nlpResponse.data.wins || [],
-        areasForSupport: nlpResponse.data.areas_for_improvement || [],
-        actionItems: nlpResponse.data.action_items || []
-      };
+        meetingType
+      );
     } catch (error) {
-      console.error('Error processing recording with MeetingBaas:', error);
+      console.error('Error processing recording:', error);
       
-      // Update meeting status to failed
-      await prisma.meeting.update({
-        where: { meetingBaasId },
-        data: { processingStatus: 'failed' }
-      });
+      try {
+        // Update meeting status to failed
+        await prisma.meeting.update({
+          where: { meetingBaasId },
+          data: { processingStatus: 'failed' }
+        });
+      } catch (updateError) {
+        console.error('Error updating meeting status:', updateError);
+      }
       
-      throw new Error('Failed to process recording with MeetingBaas');
+      throw new Error('Failed to process recording');
     }
+  }
+  
+  /**
+   * Determine the meeting type based on meeting data
+   */
+  private static determineMeetingType(meeting: any): MeetingType {
+    // Per client request, always use ONE_ON_ONE meeting type
+    return MeetingType.ONE_ON_ONE;
+    
+    // Code below is kept for future reference but not used
+    /*
+    // If the meeting has an explicit type, use it
+    if (meeting.meetingType) {
+      try {
+        return meeting.meetingType as MeetingType;
+      } catch (e) {
+        console.warn(`Invalid meeting type: ${meeting.meetingType}, using DEFAULT`);
+      }
+    }
+    
+    // Otherwise, try to infer from the title
+    const title = meeting.title.toLowerCase();
+    
+    if (title.includes('1:1') || title.includes('one on one') || title.includes('1-on-1')) {
+      return MeetingType.ONE_ON_ONE;
+    }
+    
+    if (title.includes('team') || title.includes('standup') || title.includes('sprint')) {
+      return MeetingType.TEAM_MEETING;
+    }
+    
+    if (title.includes('client') || title.includes('presentation')) {
+      return MeetingType.CLIENT_PRESENTATION;
+    }
+    
+    if (title.includes('sales') || title.includes('prospect') || title.includes('demo')) {
+      return MeetingType.SALES_CALL;
+    }
+    
+    // Default meeting type
+    return MeetingType.DEFAULT;
+    */
   }
   
   /**
@@ -290,7 +337,7 @@ export class MeetingBaasService {
         throw new Error(`Meeting with MeetingBaas ID ${meetingBaasId} not found`);
       }
       
-      // Process the recording with NLP, passing the webhook data
+      // Process the recording with our NLP service, passing the webhook data
       const nlpResult = await this.processRecording(meetingBaasId, webhookData);
       
       // Store the recording URL if provided in the webhook data
@@ -307,7 +354,10 @@ export class MeetingBaasService {
           wins: nlpResult.wins,
           areasForSupport: nlpResult.areasForSupport,
           actionItems: nlpResult.actionItems,
-          recordingUrl: recordingUrl
+          recordingUrl: recordingUrl,
+          // Store additional data if available
+          ...(nlpResult.keyInsights ? { keyInsights: nlpResult.keyInsights } : {}),
+          ...(nlpResult.clientFeedback ? { clientFeedback: nlpResult.clientFeedback } : {})
         }
       });
     } catch (error) {

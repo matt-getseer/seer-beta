@@ -61,6 +61,7 @@ model Meeting {
   date              DateTime
   duration          Int       // Duration in minutes
   status            String    @default("scheduled") // "scheduled", "completed", "cancelled"
+  meetingType       String    @default("default")   // "default", "one_on_one", "team_meeting", "client_presentation", "sales_call"
   
   // MeetingBaas specific fields
   googleMeetLink    String?
@@ -74,6 +75,8 @@ model Meeting {
   wins              String[]  
   areasForSupport   String[]
   actionItems       String[]
+  keyInsights       String[]  @default([])
+  clientFeedback    String[]  @default([])
   
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt

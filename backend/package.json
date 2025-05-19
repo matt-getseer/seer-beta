@@ -8,7 +8,8 @@
     "nodemon": "nodemon --exec ts-node src/server.ts",
     "build": "tsc",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "test-anthropic": "ts-node src/test-anthropic.ts"
   },
   "prisma": {
     "seed": "ts-node seed.ts"
