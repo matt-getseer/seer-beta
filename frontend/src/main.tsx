@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ClerkProvider } from '@clerk/clerk-react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 
 // Import CSS - make sure Tailwind is imported properly
 import './output.css'
@@ -24,6 +24,19 @@ const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 if (!publishableKey) {
   throw new Error("Missing Clerk publishable key. Set VITE_CLERK_PUBLISHABLE_KEY in your .env file.");
+}
+
+// Component to handle invite redirect
+function InviteRedirect() {
+  const location = useLocation();
+  const token = new URLSearchParams(location.search).get('token');
+  
+  // Store the token in sessionStorage for retrieval after auth
+  if (token) {
+    sessionStorage.setItem('invitationToken', token);
+  }
+  
+  return <Navigate to="/sign-up" replace />;
 }
 
 const clerkConfig = {
@@ -70,6 +83,7 @@ createRoot(document.getElementById('root')!).render(
               <Settings />
             </MainLayout>
           } />
+          <Route path="/invite" element={<InviteRedirect />} />
           <Route path="/sign-in" element={<App />} />
           <Route path="/sign-up" element={<App />} />
           <Route path="/api/auth" element={<AuthCallback />} />

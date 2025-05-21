@@ -428,6 +428,8 @@ router.post('/invite/accept', async (req: Request, res: Response) => {
   try {
     const { token, clerkId } = req.body;
     
+    console.log('Accepting invitation with token:', token, 'and clerkId:', clerkId);
+    
     if (!token) {
       return res.status(400).json({ error: 'Token is required' });
     }
@@ -452,10 +454,14 @@ router.post('/invite/accept', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Invalid or expired invitation' });
     }
     
+    console.log('Found invitation:', invitation);
+    
     // Find or create the user
     let user = await prisma.user.findFirst({
       where: { clerkId }
     });
+    
+    console.log('Existing user:', user);
     
     // If the user doesn't exist, create them
     if (!user) {
@@ -467,12 +473,14 @@ router.post('/invite/accept', async (req: Request, res: Response) => {
           adminId: invitation.inviterId
         }
       });
+      console.log('Created new user with adminId:', invitation.inviterId);
     } else {
       // If the user exists, update their adminId
       user = await prisma.user.update({
         where: { id: user.id },
         data: { adminId: invitation.inviterId }
       });
+      console.log('Updated existing user with adminId:', invitation.inviterId);
     }
     
     // Update the invitation status
@@ -480,6 +488,8 @@ router.post('/invite/accept', async (req: Request, res: Response) => {
       where: { id: invitation.id },
       data: { status: 'accepted' }
     });
+    
+    console.log('Invitation accepted, returning user:', user);
     
     res.json({
       success: true,

@@ -11,6 +11,13 @@ interface Team {
   name: string;
 }
 
+interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+}
+
 interface NewMeetingModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -26,27 +33,44 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<Team[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const { getToken } = useAuth();
 
-  // Fetch team members
+  // Fetch current user and team members
   useEffect(() => {
-    const fetchTeamMembers = async () => {
+    const fetchData = async () => {
       try {
         const token = await getToken();
-        const response = await axios.get(`${API_URL}/api/users/team`, {
+        
+        // Fetch current user
+        const userResponse = await axios.get(`${API_URL}/api/users/me`, {
           headers: {
             Authorization: `Bearer ${token}`
           }
         });
-        setTeamMembers(response.data);
+        setCurrentUser(userResponse.data);
+        
+        // Fetch team members
+        const teamResponse = await axios.get(`${API_URL}/api/users/team`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        
+        // Filter out the current user from team members list
+        const filteredTeamMembers = teamResponse.data.filter(
+          (member: Team) => member.id !== userResponse.data.id
+        );
+        
+        setTeamMembers(filteredTeamMembers);
       } catch (error) {
-        console.error('Error fetching team members:', error);
+        console.error('Error fetching data:', error);
         setError('Failed to load team members');
       }
     };
 
     if (isOpen) {
-      fetchTeamMembers();
+      fetchData();
     }
   }, [isOpen, getToken]);
 
