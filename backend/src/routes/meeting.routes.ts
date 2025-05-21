@@ -2,6 +2,7 @@ import express from 'express';
 import { MeetingController } from '../controllers/meeting.controller';
 import { MeetingWebhookController } from '../controllers/meeting-webhook.controller';
 import { MeetingAnalysisController } from '../controllers/meeting-analysis.controller';
+import { ActionItemController } from '../controllers/action-item.controller';
 import { authenticate, requireAuth, isAdmin } from '../middleware/auth.middleware';
 import { verifyMeetingBaasWebhook } from '../middleware/webhookAuth.middleware';
 
@@ -33,6 +34,19 @@ router.get('/analysis/:teamMemberId/:analysisId', requireAuth, MeetingAnalysisCo
 
 // Get a specific meeting
 router.get('/:id', requireAuth, MeetingController.getMeetingById);
+
+// Action Item routes
+// Get all action items for a meeting
+router.get('/:id/action-items', requireAuth, ActionItemController.getActionItems);
+
+// Create a new action item
+router.post('/:id/action-items', requireAuth, ActionItemController.createActionItem);
+
+// Update an action item
+router.patch('/:id/action-items/:actionItemId', requireAuth, ActionItemController.updateActionItem);
+
+// Delete an action item
+router.delete('/:id/action-items/:actionItemId', requireAuth, ActionItemController.deleteActionItem);
 
 // Write operations - accessible only to admins
 // Create a meeting - only admin can create meetings

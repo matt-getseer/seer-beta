@@ -3,6 +3,7 @@ import { MeetingBaasService } from '../services/meetingbaas.service';
 import dotenv from 'dotenv';
 import { prisma } from '../utils/prisma';
 import { withRetry, formatDbError } from '../utils/db-helpers';
+import crypto from 'crypto';
 
 // Load environment variables
 dotenv.config();
@@ -130,23 +131,85 @@ export class MeetingController {
       console.log(`Found meeting: ${meeting.id}, createdBy: ${meeting.createdBy}, teamMemberId: ${meeting.teamMemberId}`);
       
       // Check if user has access to this meeting
-      if (userRole === 'admin') {
-        // Admin can access any meeting
-        return res.status(200).json(meeting);
-      } else {
-        // Regular users can only access meetings they created or were invited to
-        if (meeting.createdBy === userId || meeting.teamMemberId === userId) {
-          return res.status(200).json(meeting);
-        } else {
-          return res.status(403).json({ error: 'You do not have access to this meeting' });
+      if (userRole !== 'admin' && meeting.createdBy !== userId && meeting.teamMemberId !== userId) {
+        return res.status(403).json({ error: 'You do not have access to this meeting' });
+      }
+      
+      // Check for legacy action items that need migration
+      if (meeting.actionItems && meeting.actionItems.length > 0) {
+        // Get existing structured action items
+        const existingActionItems = await prisma.$queryRaw`
+          SELECT * FROM "ActionItem" WHERE "meetingId" = ${meetingId}
+        ` as any[];
+        
+        // Only migrate if we don't already have structured action items
+        if (existingActionItems.length === 0) {
+          // Migrate legacy action items to structured format
+          await MeetingController.migrateLegacyActionItems(meeting);
         }
       }
+      
+      // Get structured action items separately (to avoid TypeScript issues)
+      const actionItems = await prisma.$queryRaw`
+        SELECT * FROM "ActionItem" WHERE "meetingId" = ${meetingId}
+        ORDER BY "createdAt" ASC
+      ` as any[];
+      
+      // Combine the meeting with structured action items
+      const response = {
+        ...meeting,
+        actionItemsData: actionItems
+      };
+      
+      return res.status(200).json(response);
     } catch (error) {
       console.error('Error getting meeting:', error);
       return res.status(500).json({ 
         error: 'Failed to get meeting',
         details: error instanceof Error ? error.message : String(error)
       });
+    }
+  }
+
+  /**
+   * Migrate legacy string-based action items to structured ones
+   */
+  private static async migrateLegacyActionItems(meeting: any) {
+    try {
+      console.log(`Migrating legacy action items for meeting ${meeting.id}`);
+      
+      if (!meeting.actionItems || meeting.actionItems.length === 0) {
+        return;
+      }
+      
+      // Create a structured action item for each legacy item
+      for (const text of meeting.actionItems) {
+        const now = new Date();
+        
+        await prisma.$executeRaw`
+          INSERT INTO "ActionItem" (
+            "id", 
+            "text", 
+            "assignedTo", 
+            "meetingId", 
+            "status", 
+            "createdAt"
+          )
+          VALUES (
+            ${crypto.randomUUID()}, 
+            ${text}, 
+            ${meeting.teamMemberId}, 
+            ${meeting.id}, 
+            'incomplete', 
+            ${now.toISOString()}
+          )
+        `;
+      }
+      
+      console.log(`Successfully migrated ${meeting.actionItems.length} action items for meeting ${meeting.id}`);
+    } catch (error) {
+      console.error('Error migrating legacy action items:', error);
+      // We'll just log the error but continue - migration can be retried later
     }
   }
 

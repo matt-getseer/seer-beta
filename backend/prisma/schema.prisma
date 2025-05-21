@@ -116,9 +116,12 @@ model Meeting {
   executiveSummary  String?   @db.Text
   wins              String[]  
   areasForSupport   String[]
-  actionItems       String[]
+  actionItems       String[]  // Legacy format - will be migrated to ActionItem relation
   keyInsights       String[]  @default([])
   clientFeedback    String[]  @default([])
+  
+  // Relations for structured action items
+  actionItemsData   ActionItem[] @relation("MeetingActionItems")
   
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -126,6 +129,23 @@ model Meeting {
   // Relations
   createdBy         String    // User id who created this meeting
   user              User      @relation("UserMeetings", fields: [createdBy], references: [id], onDelete: Cascade)
+}
+
+// New model for structured action items
+model ActionItem {
+  id          String    @id @default(uuid())
+  text        String
+  status      String    @default("incomplete") // "incomplete" or "complete"
+  assignedTo  String?   // User id of assignee (can be null if unassigned)
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+  
+  // Relation to meeting
+  meetingId   String
+  meeting     Meeting   @relation("MeetingActionItems", fields: [meetingId], references: [id], onDelete: Cascade)
+  
+  @@index([meetingId])
+  @@index([assignedTo])
 }
 
 model KeyArea {

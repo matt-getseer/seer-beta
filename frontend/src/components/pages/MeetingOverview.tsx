@@ -1,13 +1,24 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, VideoCamera } from 'phosphor-react';
+import { ArrowLeft, VideoCamera, X, Check } from 'phosphor-react';
 import { useAuth } from '@clerk/clerk-react';
 import VideoPlayer from '../VideoPlayer';
 import type { TeamMember } from '../../interfaces';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
+
+// New ActionItem interface
+interface ActionItem {
+  id: string;
+  text: string;
+  assignedTo?: string; // Team member ID
+  assigneeName?: string; // Team member name for display
+  status: 'incomplete' | 'complete';
+  createdAt: string;
+  completedAt?: string;
+}
 
 interface Meeting {
   id: string;
@@ -22,7 +33,7 @@ interface Meeting {
   executiveSummary?: string;
   wins?: string[];
   areasForSupport?: string[];
-  actionItems?: string[];
+  actionItems?: ActionItem[]; // Updated to use ActionItem type
   transcript?: string;
   recordingUrl?: string;
 }
@@ -36,6 +47,10 @@ const MeetingOverview = () => {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [selectedActionItem, setSelectedActionItem] = useState<ActionItem | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
   const { getToken } = useAuth();
   
   useEffect(() => {
@@ -56,14 +71,43 @@ const MeetingOverview = () => {
           }
         });
         
+        setTeamMembers(teamResponse.data);
+        
         const teamMembersMap = new Map();
         teamResponse.data.forEach((member: TeamMember) => {
           teamMembersMap.set(member.id, member.name);
         });
         
+        // Process action items - prefer structured actionItemsData if available
+        let processedActionItems = [];
+        
+        if (response.data.actionItemsData && response.data.actionItemsData.length > 0) {
+          // We have the new structured format
+          processedActionItems = response.data.actionItemsData.map((item: any) => ({
+            id: item.id,
+            text: item.text,
+            status: item.status as 'incomplete' | 'complete',
+            createdAt: item.createdAt,
+            completedAt: item.completedAt,
+            assignedTo: item.assignedTo,
+            assigneeName: item.assignedTo ? teamMembersMap.get(item.assignedTo) : undefined
+          }));
+        } else if (response.data.actionItems && response.data.actionItems.length > 0) {
+          // Fall back to legacy string array format if needed
+          processedActionItems = response.data.actionItems.map((item: string, index: number) => ({
+            id: `legacy-${index}`,
+            text: item,
+            status: 'incomplete' as 'incomplete' | 'complete',
+            createdAt: new Date().toISOString(),
+            assignedTo: response.data.teamMemberId,
+            assigneeName: teamMembersMap.get(response.data.teamMemberId)
+          }));
+        }
+        
         // Format date for display
         const meetingData = {
           ...response.data,
+          actionItems: processedActionItems,
           teamMember: teamMembersMap.get(response.data.teamMemberId) || 'Unknown',
           date: new Date(response.data.date).toLocaleString('en-US', {
             year: 'numeric',
@@ -90,6 +134,187 @@ const MeetingOverview = () => {
       fetchMeeting();
     }
   }, [id, getToken]);
+
+  // Handle status toggle for action items
+  const toggleActionItemStatus = async (actionItem: ActionItem) => {
+    if (!meeting || !meeting.id) return;
+    
+    const newStatus = actionItem.status === 'complete' ? 'incomplete' : 'complete';
+    
+    try {
+      const token = await getToken();
+      
+      // Check if this is a legacy action item (id starts with "legacy-")
+      if (actionItem.id.startsWith('legacy-')) {
+        // For legacy items, we'll just update locally since they're not in the database yet
+        const updatedActionItems = meeting.actionItems?.map(item => 
+          item.id === actionItem.id 
+            ? { 
+                ...item, 
+                status: newStatus as 'complete' | 'incomplete',
+                completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined
+              } 
+            : item
+        );
+        
+        setMeeting({
+          ...meeting,
+          actionItems: updatedActionItems
+        });
+        
+        // If the sidebar is open with this item, update it
+        if (selectedActionItem && selectedActionItem.id === actionItem.id) {
+          setSelectedActionItem({
+            ...selectedActionItem,
+            status: newStatus as 'complete' | 'incomplete',
+            completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined
+          });
+        }
+      } else {
+        // For structured items, call the API
+        await axios.patch(
+          `${API_URL}/api/meetings/${meeting.id}/action-items/${actionItem.id}`,
+          {
+            status: newStatus,
+            completedAt: newStatus === 'complete' ? new Date().toISOString() : null
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+        
+        // Update local state
+        const updatedActionItems = meeting.actionItems?.map(item => 
+          item.id === actionItem.id 
+            ? { 
+                ...item, 
+                status: newStatus as 'complete' | 'incomplete',
+                completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined
+              } 
+            : item
+        );
+        
+        setMeeting({
+          ...meeting,
+          actionItems: updatedActionItems
+        });
+        
+        // If the sidebar is open with this item, update it
+        if (selectedActionItem && selectedActionItem.id === actionItem.id) {
+          setSelectedActionItem({
+            ...selectedActionItem,
+            status: newStatus as 'complete' | 'incomplete',
+            completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error updating action item status:', error);
+      // Show error message to user
+      alert('Error updating action item status. Please try again.');
+    }
+  };
+  
+  // Handle assignment change
+  const updateActionItemAssignment = async (actionItem: ActionItem, teamMemberId: string) => {
+    if (!meeting || !meeting.id) return;
+    
+    try {
+      const token = await getToken();
+      const assigneeName = teamMembers.find(member => member.id === teamMemberId)?.name;
+      
+      // Check if this is a legacy action item (id starts with "legacy-")
+      if (actionItem.id.startsWith('legacy-')) {
+        // For legacy items, we'll just update locally since they're not in the database yet
+        const updatedActionItems = meeting.actionItems?.map(item => 
+          item.id === actionItem.id 
+            ? { 
+                ...item, 
+                assignedTo: teamMemberId,
+                assigneeName: assigneeName || undefined
+              } 
+            : item
+        );
+        
+        setMeeting({
+          ...meeting,
+          actionItems: updatedActionItems
+        });
+        
+        // If the sidebar is open with this item, update it
+        if (selectedActionItem && selectedActionItem.id === actionItem.id) {
+          setSelectedActionItem({
+            ...selectedActionItem,
+            assignedTo: teamMemberId,
+            assigneeName: assigneeName || undefined
+          });
+        }
+      } else {
+        // For structured items, call the API
+        await axios.patch(
+          `${API_URL}/api/meetings/${meeting.id}/action-items/${actionItem.id}`,
+          {
+            assignedTo: teamMemberId
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+        
+        // Update local state
+        const updatedActionItems = meeting.actionItems?.map(item => 
+          item.id === actionItem.id 
+            ? { 
+                ...item, 
+                assignedTo: teamMemberId,
+                assigneeName: assigneeName || undefined
+              } 
+            : item
+        );
+        
+        setMeeting({
+          ...meeting,
+          actionItems: updatedActionItems
+        });
+        
+        // If the sidebar is open with this item, update it
+        if (selectedActionItem && selectedActionItem.id === actionItem.id) {
+          setSelectedActionItem({
+            ...selectedActionItem,
+            assignedTo: teamMemberId,
+            assigneeName: assigneeName || undefined
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error updating action item assignment:', error);
+      // Show error message to user
+      alert('Error updating assignment. Please try again.');
+    }
+  };
+  
+  // Open sidebar for action item details
+  const openActionItemDetails = (actionItem: ActionItem) => {
+    setSelectedActionItem(actionItem);
+    setSidebarOpen(true);
+    // Delay setting visible for animation
+    setTimeout(() => setSidebarVisible(true), 10);
+  };
+  
+  // Close sidebar
+  const closeSidebar = () => {
+    // First hide with animation
+    setSidebarVisible(false);
+    // Then fully close after animation completes
+    setTimeout(() => {
+      setSidebarOpen(false);
+      setSelectedActionItem(null);
+    }, 300);
+  };
   
   // Get status style based on meeting status
   const getStatusStyle = (status: string, processingStatus?: string) => {
@@ -153,7 +378,7 @@ const MeetingOverview = () => {
   }
 
   return (
-    <div>
+    <div className="relative">
       <div className="mb-2">
         {fromTeamMember && teamMemberId ? (
           <Link to={`/team/${teamMemberId}`} className="inline-flex items-center text-gray-600 hover:text-gray-900">
@@ -302,16 +527,48 @@ const MeetingOverview = () => {
                 </div>
               </div>
               
-              {/* Action Items */}
+              {/* Action Items - Updated with task functionality */}
               <div>
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Action Items</h2>
                 <div className="bg-blue-50 p-4 rounded-lg">
                   {meeting.actionItems && meeting.actionItems.length > 0 ? (
                     <ul className="space-y-2">
-                      {meeting.actionItems.map((item, index) => (
-                        <li key={index} className="flex items-start">
-                          <span className="text-blue-500 mr-2">•</span>
-                          <span className="text-gray-700">{item}</span>
+                      {meeting.actionItems.map((item) => (
+                        <li 
+                          key={item.id} 
+                          className="flex items-start p-2 rounded hover:bg-blue-100 transition-colors cursor-pointer"
+                          onClick={() => openActionItemDetails(item)}
+                        >
+                          <button 
+                            className={`flex-shrink-0 w-5 h-5 mr-2 rounded-full border ${
+                              item.status === 'complete' 
+                                ? 'bg-blue-500 border-blue-500 text-white flex items-center justify-center' 
+                                : 'border-blue-500'
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleActionItemStatus(item);
+                            }}
+                            aria-label={item.status === 'complete' ? 'Mark as incomplete' : 'Mark as complete'}
+                          >
+                            {item.status === 'complete' && <Check size={12} weight="bold" />}
+                          </button>
+                          <div className="flex-1">
+                            <span className={`text-gray-700 ${item.status === 'complete' ? 'line-through' : ''}`}>
+                              {item.text}
+                            </span>
+                            <div className="mt-1">
+                              {item.assigneeName ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                  {item.assigneeName}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                  Unassigned
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -355,6 +612,108 @@ const MeetingOverview = () => {
           </div>
         )}
       </div>
+      
+      {/* Slide-in Sidebar for Action Item Details */}
+      {sidebarOpen && selectedActionItem && (
+        <div className="fixed inset-0 overflow-hidden z-10">
+          <div className="absolute inset-0 overflow-hidden">
+            {/* Click area to close (no visible overlay) */}
+            <div 
+              className="absolute inset-0 transition-opacity" 
+              onClick={closeSidebar}
+            ></div>
+            
+            {/* Sidebar panel */}
+            <div className="fixed inset-y-0 right-0 max-w-full flex">
+              <div className={`relative w-screen max-w-xl transform transition-transform duration-300 ease-in-out ${
+                sidebarVisible ? 'translate-x-0' : 'translate-x-full'
+              }`}>
+                <div className="h-full flex flex-col py-6 bg-white shadow-xl overflow-y-auto">
+                  {/* Header */}
+                  <div className="px-4 sm:px-6 mb-4 flex items-center justify-between">
+                    <h2 className="text-lg font-medium text-gray-900">Action Item Details</h2>
+                    <button
+                      className="rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      onClick={closeSidebar}
+                    >
+                      <span className="sr-only">Close panel</span>
+                      <X size={24} aria-hidden="true" />
+                    </button>
+                  </div>
+                  
+                  {/* Content */}
+                  <div className="px-4 sm:px-6 flex-1">
+                    {/* Status Toggle */}
+                    <div className="mb-6">
+                      <h3 className="text-sm font-medium text-gray-500 mb-2">Status</h3>
+                      <button
+                        className={`inline-flex items-center px-3 py-2 border rounded-md text-sm font-medium ${
+                          selectedActionItem.status === 'complete'
+                            ? 'bg-green-100 text-green-800 border-green-200'
+                            : 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                        }`}
+                        onClick={() => toggleActionItemStatus(selectedActionItem)}
+                      >
+                        {selectedActionItem.status === 'complete' ? (
+                          <>
+                            <Check size={16} className="mr-1" />
+                            Completed
+                          </>
+                        ) : (
+                          'Incomplete'
+                        )}
+                      </button>
+                    </div>
+                    
+                    {/* Action Item Text */}
+                    <div className="mb-6">
+                      <h3 className="text-sm font-medium text-gray-500 mb-2">Description</h3>
+                      <div className="bg-gray-50 p-3 rounded-md text-gray-700">
+                        {selectedActionItem.text}
+                      </div>
+                    </div>
+                    
+                    {/* Assignment */}
+                    <div className="mb-6">
+                      <h3 className="text-sm font-medium text-gray-500 mb-2">Assigned To</h3>
+                      <select
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                        value={selectedActionItem.assignedTo || ''}
+                        onChange={(e) => updateActionItemAssignment(selectedActionItem, e.target.value)}
+                      >
+                        <option value="">Unassigned</option>
+                        <option value="admin">Me</option>
+                        {meeting.teamMemberId && (
+                          <option value={meeting.teamMemberId}>
+                            {meeting.teamMember || 'Team Member'}
+                          </option>
+                        )}
+                      </select>
+                    </div>
+                    
+                    {/* Dates */}
+                    <div className="mb-6">
+                      <h3 className="text-sm font-medium text-gray-500 mb-2">Created</h3>
+                      <div className="text-gray-700">
+                        {new Date(selectedActionItem.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    
+                    {selectedActionItem.completedAt && (
+                      <div className="mb-6">
+                        <h3 className="text-sm font-medium text-gray-500 mb-2">Completed</h3>
+                        <div className="text-gray-700">
+                          {new Date(selectedActionItem.completedAt).toLocaleString()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
