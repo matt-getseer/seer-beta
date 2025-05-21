@@ -4,6 +4,7 @@ import { userApi, meetingApi, keyAreaApi } from '../../utils/api';
 import { analyzeMeetings } from '../../utils/anthropic';
 import type { TeamMember as TeamMemberType, KeyArea } from '../../interfaces';
 import { Dialog, Transition } from '@headlessui/react';
+import { Link } from 'react-router-dom';
 
 const TeamMember = () => {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +28,10 @@ const TeamMember = () => {
   const [keyAreaToDelete, setKeyAreaToDelete] = useState<string | null>(null);
   const [keyAreasChanged, setKeyAreasChanged] = useState(false);
   const [refreshAnalysisLoading, setRefreshAnalysisLoading] = useState(false);
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
+  const [sortField, setSortField] = useState<string>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   
   useEffect(() => {
     const fetchData = async () => {
@@ -63,6 +68,9 @@ const TeamMember = () => {
         setAnalyzing(true);
         try {
           const meetings = await meetingApi.getMeetingsByTeamMember(id);
+          
+          // Store all meetings for the meetings tab
+          setMeetings(meetings);
           
           // If no meetings or if API calls fail, try to use direct Anthropic analysis
           if (meetings.length === 0) {
@@ -299,6 +307,61 @@ const TeamMember = () => {
     }
   };
 
+  // Function to handle sorting in meetings tab
+  const handleSort = (field: string) => {
+    if (field === sortField) {
+      // Toggle direction if clicking the same field
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new field and default to ascending
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // Render sort indicator
+  const renderSortIndicator = (field: string) => {
+    if (sortField !== field) return null;
+    
+    return sortDirection === 'asc' 
+      ? <span className="ml-1">↑</span>
+      : <span className="ml-1">↓</span>;
+  };
+
+  // Get status style based on meeting status
+  const getStatusStyle = (status: string, processingStatus?: string) => {
+    // If processing is pending or in progress, show a special status
+    if (processingStatus === 'pending' || processingStatus === 'processing') {
+      return 'bg-yellow-100 text-yellow-800';
+    }
+    
+    switch (status) {
+      case 'scheduled':
+        return 'bg-blue-100 text-blue-800';
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'cancelled':
+        return 'bg-gray-100 text-gray-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // Get display text for status
+  const getStatusText = (status: string, processingStatus?: string) => {
+    if (status === 'completed') {
+      if (processingStatus === 'pending') {
+        return 'Processing Pending';
+      } else if (processingStatus === 'processing') {
+        return 'Processing';
+      } else if (processingStatus === 'failed') {
+        return 'Processing Failed';
+      }
+    }
+    
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  };
+
   // Show loading state
   if (loading) {
     return (
@@ -345,6 +408,16 @@ const TeamMember = () => {
             onClick={() => setActiveTab('details')}
           >
             Details
+          </button>
+          <button
+            className={`mr-4 py-2 px-1 font-medium text-base ${
+              activeTab === 'meetings'
+                ? 'text-[#171717] border-b-2 border-[#171717]'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            onClick={() => setActiveTab('meetings')}
+          >
+            Meetings
           </button>
           <button
             className={`mr-4 py-2 px-1 font-medium text-base ${
@@ -465,6 +538,103 @@ const TeamMember = () => {
                 </div>
               </div>
             </div>
+          </div>
+        ) : activeTab === 'meetings' ? (
+          <div className="p-0">
+            {meetingsLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+                <p className="mt-4 text-gray-700">Loading meetings...</p>
+              </div>
+            ) : meetings.length > 0 ? (
+              <div className="bg-white shadow rounded-lg overflow-hidden">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th 
+                        scope="col" 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleSort('date')}
+                      >
+                        Date {renderSortIndicator('date')}
+                      </th>
+                      <th 
+                        scope="col" 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleSort('title')}
+                      >
+                        Meeting name {renderSortIndicator('title')}
+                      </th>
+                      <th 
+                        scope="col" 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleSort('duration')}
+                      >
+                        Duration {renderSortIndicator('duration')}
+                      </th>
+                      <th 
+                        scope="col" 
+                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleSort('status')}
+                      >
+                        Status {renderSortIndicator('status')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {meetings
+                      .sort((a, b) => {
+                        let aValue = a[sortField];
+                        let bValue = b[sortField];
+                        
+                        // Special case for date
+                        if (sortField === 'date') {
+                          aValue = new Date(a.date);
+                          bValue = new Date(b.date);
+                        }
+                        
+                        if (aValue < bValue) {
+                          return sortDirection === 'asc' ? -1 : 1;
+                        }
+                        if (aValue > bValue) {
+                          return sortDirection === 'asc' ? 1 : -1;
+                        }
+                        return 0;
+                      })
+                      .map((meeting) => (
+                        <tr key={meeting.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                            {new Date(meeting.date).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-base font-medium text-[#171717]">
+                              <Link to={`/meetings/${meeting.id}`} className="hover:text-indigo-600 hover:underline">
+                                {meeting.title}
+                              </Link>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                            {meeting.duration} mins
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusStyle(meeting.status, meeting.processingStatus)}`}>
+                              {getStatusText(meeting.status, meeting.processingStatus)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="bg-gray-50 p-4 rounded-lg text-gray-500 text-center">
+                No meetings found for this team member
+              </div>
+            )}
           </div>
         ) : activeTab === 'activity' ? (
           <div className="p-6">

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MagnifyingGlass, CaretDown, Plus } from 'phosphor-react';
+import { MagnifyingGlass, CaretDown, Plus, ArrowUp, ArrowDown } from 'phosphor-react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
@@ -15,6 +15,7 @@ interface Meeting {
   teamMemberId: string;
   teamMember?: string; // Will be populated from user data
   date: string;
+  rawDate?: Date; // Store raw date for sorting
   duration: number;
   status: 'scheduled' | 'completed' | 'cancelled';
   processingStatus?: 'pending' | 'processing' | 'completed' | 'failed';
@@ -38,6 +39,10 @@ const Meetings = () => {
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [sortField, setSortField] = useState<keyof Meeting>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
   const { getToken } = useAuth();
   
   // Fetch current user data
@@ -83,21 +88,33 @@ const Meetings = () => {
       });
       
       // Add team member names to meetings
-      const meetingsWithNames = response.data.map((meeting: Meeting) => ({
-        ...meeting,
-        teamMember: teamMembersMap.get(meeting.teamMemberId) || 'Unknown',
-        // Format date for display
-        date: new Date(meeting.date).toLocaleString('en-US', {
-          year: 'numeric',
-          month: 'numeric',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: 'numeric',
-          hour12: true
-        }),
-        // Format duration for display
-        duration: `${meeting.duration} min${meeting.duration !== 1 ? 's' : ''}`
-      }));
+      const meetingsWithNames = response.data.map((meeting: Meeting) => {
+        const rawDate = new Date(meeting.date);
+        
+        return {
+          ...meeting,
+          teamMember: teamMembersMap.get(meeting.teamMemberId) || 'Unknown',
+          rawDate, // Store raw date for sorting
+          // Format date for display
+          date: rawDate.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          }).replace(/(\d+)(?=(,))/, function(match) {
+            // Add ordinal suffix (st, nd, rd, th)
+            const day = parseInt(match);
+            if (day > 3 && day < 21) return day + 'th'; // 4th through 20th
+            switch (day % 10) {
+              case 1: return day + 'st';
+              case 2: return day + 'nd';
+              case 3: return day + 'rd';
+              default: return day + 'th';
+            }
+          }),
+          // Format duration for display
+          duration: `${meeting.duration} min${meeting.duration !== 1 ? 's' : ''}`
+        }
+      });
       
       setMeetings(meetingsWithNames);
       setError(null);
@@ -113,6 +130,21 @@ const Meetings = () => {
     fetchCurrentUser();
     fetchMeetings();
   }, []);
+  
+  // Handle sorting
+  const handleSort = (field: keyof Meeting) => {
+    if (field === sortField) {
+      // Toggle direction if clicking the same field
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new field and default to ascending
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    
+    // Reset to first page when sorting changes
+    setCurrentPage(1);
+  };
   
   // Filter meetings based on search term and active tab
   const filteredMeetings = meetings.filter(meeting => {
@@ -130,6 +162,33 @@ const Meetings = () => {
       meeting.status.toLowerCase().includes(searchTermLower)
     );
   });
+
+  // Sort the filtered meetings
+  const sortedMeetings = [...filteredMeetings].sort((a, b) => {
+    let aValue: any = a[sortField];
+    let bValue: any = b[sortField];
+    
+    // Special cases for sorting
+    if (sortField === 'date' && a.rawDate && b.rawDate) {
+      aValue = a.rawDate;
+      bValue = b.rawDate;
+    }
+    
+    if (aValue < bValue) {
+      return sortDirection === 'asc' ? -1 : 1;
+    }
+    if (aValue > bValue) {
+      return sortDirection === 'asc' ? 1 : -1;
+    }
+    return 0;
+  });
+  
+  // Paginate the sorted and filtered meetings
+  const totalPages = Math.ceil(sortedMeetings.length / itemsPerPage);
+  const paginatedMeetings = sortedMeetings.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   // Get status style based on meeting status
   const getStatusStyle = (status: string, processingStatus?: string) => {
@@ -168,6 +227,20 @@ const Meetings = () => {
   // Handle new meeting created
   const handleMeetingCreated = () => {
     fetchMeetings();
+  };
+  
+  // Render sort indicator
+  const renderSortIndicator = (field: keyof Meeting) => {
+    if (sortField !== field) return null;
+    
+    return sortDirection === 'asc' 
+      ? <ArrowUp size={16} className="inline ml-1" /> 
+      : <ArrowDown size={16} className="inline ml-1" />;
+  };
+  
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
   };
 
   return (
@@ -228,7 +301,7 @@ const Meetings = () => {
         <div className="flex items-center">
           <div className="relative inline-block text-left mr-3">
             <button className="inline-flex justify-between items-center w-48 rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">
-              <span>Sort by: Date</span>
+              <span>Sort by: {sortField.charAt(0).toUpperCase() + sortField.slice(1)}</span>
               <CaretDown size={20} weight="fill" />
             </button>
           </div>
@@ -266,49 +339,156 @@ const Meetings = () => {
       ) : (
         /* Table */
         <div className="bg-white shadow rounded-lg overflow-hidden">
-          {filteredMeetings.length === 0 ? (
+          {paginatedMeetings.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <p>No meetings found</p>
             </div>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Meeting name</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Team member</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredMeetings.map((meeting) => (
-                  <tr key={meeting.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-base font-medium text-[#171717]">
-                        <Link to={`/meetings/${meeting.id}`} className="hover:text-indigo-600 hover:underline">
-                          {meeting.title}
-                        </Link>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
-                      {meeting.teamMember}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
-                      {meeting.date}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
-                      {meeting.duration}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusStyle(meeting.status, meeting.processingStatus)}`}>
-                        {getStatusText(meeting.status, meeting.processingStatus)}
-                      </span>
-                    </td>
+            <>
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th 
+                      scope="col" 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('date')}
+                    >
+                      Date {renderSortIndicator('date')}
+                    </th>
+                    <th 
+                      scope="col" 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('title')}
+                    >
+                      Meeting name {renderSortIndicator('title')}
+                    </th>
+                    <th 
+                      scope="col" 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('teamMember')}
+                    >
+                      Team member {renderSortIndicator('teamMember')}
+                    </th>
+                    <th 
+                      scope="col" 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('duration')}
+                    >
+                      Duration {renderSortIndicator('duration')}
+                    </th>
+                    <th 
+                      scope="col" 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('status')}
+                    >
+                      Status {renderSortIndicator('status')}
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {paginatedMeetings.map((meeting) => (
+                    <tr key={meeting.id}>
+                      <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                        {meeting.date}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-base font-medium text-[#171717]">
+                          <Link to={`/meetings/${meeting.id}`} className="hover:text-indigo-600 hover:underline">
+                            {meeting.title}
+                          </Link>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                        {meeting.teamMember}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                        {meeting.duration}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusStyle(meeting.status, meeting.processingStatus)}`}>
+                          {getStatusText(meeting.status, meeting.processingStatus)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
+                  <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm text-gray-700">
+                        Showing <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                        <span className="font-medium">
+                          {Math.min(currentPage * itemsPerPage, filteredMeetings.length)}
+                        </span>{' '}
+                        of <span className="font-medium">{filteredMeetings.length}</span> results
+                      </p>
+                    </div>
+                    <div>
+                      <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                        <button
+                          onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                          disabled={currentPage === 1}
+                          className={`relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium ${
+                            currentPage === 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="sr-only">Previous</span>
+                          &laquo; Prev
+                        </button>
+                        
+                        {/* Page numbers */}
+                        {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
+                          // Show pages around current page
+                          let pageNum = currentPage;
+                          if (totalPages <= 5) {
+                            // Show all pages if 5 or fewer
+                            pageNum = i + 1;
+                          } else if (currentPage <= 3) {
+                            // At start, show first 5 pages
+                            pageNum = i + 1;
+                          } else if (currentPage >= totalPages - 2) {
+                            // At end, show last 5 pages
+                            pageNum = totalPages - 4 + i;
+                          } else {
+                            // In middle, show current page and 2 pages before/after
+                            pageNum = currentPage - 2 + i;
+                          }
+                          
+                          return (
+                            <button
+                              key={pageNum}
+                              onClick={() => handlePageChange(pageNum)}
+                              className={`relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium ${
+                                currentPage === pageNum
+                                  ? 'z-10 bg-indigo-50 border-indigo-500 text-indigo-600'
+                                  : 'bg-white text-gray-500 hover:bg-gray-50'
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+                        
+                        <button
+                          onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                          disabled={currentPage === totalPages}
+                          className={`relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium ${
+                            currentPage === totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="sr-only">Next</span>
+                          Next &raquo;
+                        </button>
+                      </nav>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
