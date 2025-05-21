@@ -33,12 +33,18 @@ export class APIKeyController {
         return res.status(404).json({ error: 'User not found' });
       }
       
+      // Determine if the user has a valid API key for their selected provider
+      const hasValidApiKey = user.aiProvider === 'anthropic' 
+        ? (user.useCustomAI && user.hasAnthropicKey) 
+        : (user.useCustomAI && user.hasOpenAIKey);
+      
       // Transform the data to a safer format for the frontend
       const settings = {
         useCustomAI: user.useCustomAI || false,
         aiProvider: user.aiProvider || 'anthropic',
         hasAnthropicKey: user.hasAnthropicKey || false,
-        hasOpenAIKey: user.hasOpenAIKey || false
+        hasOpenAIKey: user.hasOpenAIKey || false,
+        hasValidApiKey
       };
       
       res.json(settings);
@@ -80,20 +86,32 @@ export class APIKeyController {
       };
       
       // If an API key is provided, encrypt and store it
-      if (apiKey) {
-        try {
-          const encryptedKey = EncryptionService.encrypt(apiKey);
-          
+      if (apiKey !== undefined) {
+        if (apiKey === "") {
+          // Empty string means disconnect/remove the API key
           if (aiProvider === 'anthropic') {
-            updateData.anthropicApiKey = encryptedKey;
-            updateData.hasAnthropicKey = true;
+            updateData.anthropicApiKey = null;
+            updateData.hasAnthropicKey = false;
           } else {
-            updateData.openaiApiKey = encryptedKey;
-            updateData.hasOpenAIKey = true;
+            updateData.openaiApiKey = null;
+            updateData.hasOpenAIKey = false;
           }
-        } catch (encryptError) {
-          console.error('Error encrypting API key:', encryptError);
-          return res.status(500).json({ error: 'Failed to secure API key' });
+        } else if (apiKey) {
+          // Non-empty string means encrypt and store the API key
+          try {
+            const encryptedKey = EncryptionService.encrypt(apiKey);
+            
+            if (aiProvider === 'anthropic') {
+              updateData.anthropicApiKey = encryptedKey;
+              updateData.hasAnthropicKey = true;
+            } else {
+              updateData.openaiApiKey = encryptedKey;
+              updateData.hasOpenAIKey = true;
+            }
+          } catch (encryptError) {
+            console.error('Error encrypting API key:', encryptError);
+            return res.status(500).json({ error: 'Failed to secure API key' });
+          }
         }
       }
       

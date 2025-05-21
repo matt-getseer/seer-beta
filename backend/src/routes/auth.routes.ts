@@ -178,7 +178,7 @@ router.get('/google/status', authenticate, requireAuth, async (req, res) => {
     }
     
     const user = await prisma.user.findUnique({
-      where: { id: req.auth.userId },
+      where: { clerkId: req.auth.userId },
       select: {
         googleConnected: true,
         googleRefreshToken: true
@@ -203,7 +203,7 @@ router.post('/google/disconnect', authenticate, requireAuth, async (req, res) =>
     
     // Update user to remove Google connection
     await prisma.user.update({
-      where: { id: req.auth.userId },
+      where: { clerkId: req.auth.userId },
       data: {
         googleRefreshToken: null,
         googleConnected: false
