@@ -252,6 +252,20 @@ Each category should have 5-8 items. Make each item concise but descriptive.`;
           }
         });
         
+        // Save to analysis history
+        const analyzedAt = new Date();
+        console.log(`Creating analysis history with date: ${analyzedAt.toISOString()}`);
+        
+        await prisma.analysisHistory.create({
+          data: {
+            userId: teamMemberId,
+            wins: sanitizedResult.wins,
+            areasForSupport: sanitizedResult.areasForSupport,
+            actionItems: sanitizedResult.actionItems,
+            analyzedAt: analyzedAt
+          }
+        });
+        
         return res.status(200).json({
           ...sanitizedResult,
           cached: false,
@@ -270,6 +284,101 @@ Each category should have 5-8 items. Make each item concise but descriptive.`;
       console.error('Error analyzing team member meetings:', error);
       return res.status(500).json({ 
         error: 'Failed to analyze team member meetings',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Get analysis history for a team member
+   */
+  static async getAnalysisHistory(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      const userRole = req.user?.role;
+      const teamMemberId = req.params.teamMemberId;
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
+      
+      console.log(`Getting analysis history for team member: ${teamMemberId} by user: ${userId}, role: ${userRole}`);
+      
+      // First check if team member exists
+      const teamMember = await prisma.user.findUnique({
+        where: {
+          id: teamMemberId
+        }
+      });
+      
+      if (!teamMember) {
+        return res.status(404).json({ error: 'Team member not found' });
+      }
+      
+      // Get analysis history sorted by date
+      const history = await prisma.analysisHistory.findMany({
+        where: {
+          userId: teamMemberId
+        },
+        orderBy: {
+          analyzedAt: 'desc'
+        }
+      });
+      
+      return res.status(200).json(history);
+    } catch (error) {
+      console.error('Error getting analysis history:', error);
+      return res.status(500).json({ 
+        error: 'Failed to get analysis history',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Get a specific analysis by ID
+   */
+  static async getAnalysisById(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      const userRole = req.user?.role;
+      const teamMemberId = req.params.teamMemberId;
+      const analysisId = req.params.analysisId;
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
+      
+      console.log(`Getting analysis ${analysisId} for team member: ${teamMemberId} by user: ${userId}, role: ${userRole}`);
+      
+      // First check if team member exists
+      const teamMember = await prisma.user.findUnique({
+        where: {
+          id: teamMemberId
+        }
+      });
+      
+      if (!teamMember) {
+        return res.status(404).json({ error: 'Team member not found' });
+      }
+      
+      // Get the specific analysis
+      const analysis = await prisma.analysisHistory.findFirst({
+        where: {
+          id: analysisId,
+          userId: teamMemberId
+        }
+      });
+      
+      if (!analysis) {
+        return res.status(404).json({ error: 'Analysis not found' });
+      }
+      
+      return res.status(200).json(analysis);
+    } catch (error) {
+      console.error('Error getting analysis:', error);
+      return res.status(500).json({ 
+        error: 'Failed to get analysis',
         details: error instanceof Error ? error.message : String(error)
       });
     }

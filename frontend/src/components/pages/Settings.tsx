@@ -269,14 +269,14 @@ const Settings = () => {
         {/* New AI Processing Section */}
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-medium text-[#171717]">AI Processing</h2>
+            <h2 className="text-lg font-medium text-[#171717]">Custom AI Key</h2>
           </div>
           
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-medium text-[#171717]">Use Custom AI Credentials</h3>
-                <p className="text-sm text-gray-500">Process meeting data using your own AI provider credentials</p>
+                <h3 className="text-sm font-medium text-[#171717]">Use your own AI account</h3>
+                <p className="text-sm text-gray-500">Process meeting data using either ChatGPT or Anthropic</p>
               </div>
               <button 
                 className={`relative inline-flex h-6 w-11 items-center rounded-full ${useCustomAI ? 'bg-blue-600' : 'bg-gray-200'}`}

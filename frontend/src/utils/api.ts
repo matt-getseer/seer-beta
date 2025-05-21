@@ -161,6 +161,16 @@ export interface TeamMemberAnalysis {
   lastAnalyzedAt?: string;
 }
 
+// Analysis history interface
+export interface AnalysisHistory {
+  id: string;
+  userId: string;
+  analyzedAt: string;
+  wins: string[];
+  areasForSupport: string[];
+  actionItems: string[];
+}
+
 // User API functions
 export const userApi = {
   // Get all users
@@ -277,6 +287,16 @@ export const meetingApi = {
   // Analyze team member meetings to extract recurring themes
   analyzeTeamMemberMeetings: async (teamMemberId: string, forceRefresh: boolean = false): Promise<TeamMemberAnalysis> => {
     return fetchApi<TeamMemberAnalysis>(`/api/meetings/analyze/${teamMemberId}?forceRefresh=${forceRefresh}`);
+  },
+  
+  // Get analysis history for a team member
+  getAnalysisHistory: async (teamMemberId: string): Promise<AnalysisHistory[]> => {
+    return fetchApi<AnalysisHistory[]>(`/api/meetings/analysis-history/${teamMemberId}`);
+  },
+  
+  // Get a specific analysis by ID
+  getAnalysisById: async (teamMemberId: string, analysisId: string): Promise<AnalysisHistory> => {
+    return fetchApi<AnalysisHistory>(`/api/meetings/analysis/${teamMemberId}/${analysisId}`);
   }
 };
 

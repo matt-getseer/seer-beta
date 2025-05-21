@@ -2,7 +2,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { useParams } from 'react-router-dom';
 import { userApi, meetingApi, keyAreaApi } from '../../utils/api';
 import { analyzeMeetings } from '../../utils/anthropic';
-import type { TeamMember as TeamMemberType, KeyArea } from '../../interfaces';
+import type { TeamMember as TeamMemberType, KeyArea, Activity, AnalysisHistory } from '../../interfaces';
 import { Dialog, Transition } from '@headlessui/react';
 import { Link } from 'react-router-dom';
 
@@ -32,6 +32,8 @@ const TeamMember = () => {
   const [meetingsLoading, setMeetingsLoading] = useState(false);
   const [sortField, setSortField] = useState<string>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistory[]>([]);
+  const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisHistory | null>(null);
   
   useEffect(() => {
     const fetchData = async () => {
@@ -118,6 +120,38 @@ const TeamMember = () => {
               });
             }
             
+            // Fetch analysis history
+            try {
+              const historyData = await meetingApi.getAnalysisHistory(id);
+              setAnalysisHistory(historyData);
+              
+              // Add analysis history entries to recent activity
+              if (historyData && historyData.length > 0) {
+                const analysisActivities = transformHistoryToActivities(historyData);
+                
+                // Combine with meeting activities
+                const combinedActivity = [...recentActivity, ...analysisActivities]
+                  .sort((a, b) => {
+                    // Convert both dates to valid Date objects
+                    const dateA = getValidDate(a.date);
+                    const dateB = getValidDate(b.date);
+                    // Sort descending (newest first)
+                    return dateB.getTime() - dateA.getTime();
+                  })
+                  .slice(0, 10);
+                
+                setTeamMember(prev => {
+                  if (!prev) return null;
+                  return {
+                    ...prev,
+                    recentActivity: combinedActivity
+                  };
+                });
+              }
+            } catch (historyError) {
+              console.error('Error fetching analysis history:', historyError);
+            }
+            
             // Update team member with analysis results
             setTeamMember(prev => {
               if (!prev) return null;
@@ -199,6 +233,107 @@ const TeamMember = () => {
       console.error('Error fetching key areas:', error);
     } finally {
       setKeyAreaLoading(false);
+    }
+  };
+  
+  // Function to safely format dates and ensure they're not in the future
+  const getValidDate = (dateString: string): Date => {
+    const parsedDate = new Date(dateString);
+    const now = new Date();
+    
+    // Check if date is valid and not in the future
+    if (isNaN(parsedDate.getTime()) || parsedDate > now) {
+      return now;
+    }
+    
+    return parsedDate;
+  };
+  
+  // Add a utility function to transform history data into activity entries
+  const transformHistoryToActivities = (historyData: AnalysisHistory[]): Activity[] => {
+    return historyData
+      .filter(item => !!item.analyzedAt) // Filter out any items without dates
+      .map(item => {
+        // Get a valid date using our helper
+        const analysisDate = getValidDate(item.analyzedAt);
+        
+        return {
+          id: item.id,
+          date: analysisDate.toISOString(),
+          action: 'Analysis',
+          details: `Performance analysis from ${analysisDate.toLocaleDateString()}`,
+          type: 'analysis'
+        };
+      });
+  };
+  
+  // Function to load a historical analysis
+  const loadHistoricalAnalysis = async (analysisId: string) => {
+    if (!id) return;
+    
+    try {
+      setLoading(true);
+      const analysisData = await meetingApi.getAnalysisById(id, analysisId);
+      
+      setSelectedAnalysis(analysisData);
+      
+      // Update the UI with the historical analysis data
+      setTeamMember(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          wins: analysisData.wins || [],
+          areasForSupport: analysisData.areasForSupport || [],
+          actionItems: analysisData.actionItems || []
+        };
+      });
+      
+      // Update analysis info to show we're viewing historical data
+      setAnalysisInfo({
+        cached: true,
+        lastAnalyzedAt: analysisData.analyzedAt
+      });
+      
+      // Switch to details tab to show the loaded analysis
+      setActiveTab('details');
+    } catch (error) {
+      console.error('Error loading historical analysis:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Function to clear selected analysis and return to current data
+  const clearHistoricalAnalysis = async () => {
+    if (!id || !selectedAnalysis) return;
+    
+    try {
+      setLoading(true);
+      // Reload the current analysis
+      const currentAnalysis = await meetingApi.analyzeTeamMemberMeetings(id);
+      
+      setSelectedAnalysis(null);
+      
+      // Update analysis info
+      setAnalysisInfo({
+        cached: currentAnalysis.cached || false,
+        lastAnalyzedAt: currentAnalysis.lastAnalyzedAt
+      });
+      
+      // Update team member with current analysis
+      setTeamMember(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          wins: currentAnalysis.wins,
+          areasForSupport: currentAnalysis.areasForSupport,
+          actionItems: currentAnalysis.actionItems
+        };
+      });
+    } catch (error) {
+      console.error('Error returning to current analysis:', error);
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -284,6 +419,40 @@ const TeamMember = () => {
         lastAnalyzedAt: analysis.lastAnalyzedAt
       });
       
+      // Fetch updated analysis history
+      try {
+        const historyData = await meetingApi.getAnalysisHistory(id);
+        setAnalysisHistory(historyData);
+        
+        // Add analysis history entries to recent activity
+        if (historyData && historyData.length > 0) {
+          const analysisActivities = transformHistoryToActivities(historyData);
+          
+          // Combine with meeting activities from current team member state
+          const meetingActivities = teamMember?.recentActivity?.filter(act => act.action === 'Meeting') || [];
+          
+          const combinedActivity = [...meetingActivities, ...analysisActivities]
+            .sort((a, b) => {
+              // Convert both dates to valid Date objects
+              const dateA = getValidDate(a.date);
+              const dateB = getValidDate(b.date);
+              // Sort descending (newest first)
+              return dateB.getTime() - dateA.getTime();
+            })
+            .slice(0, 10);
+          
+          setTeamMember(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              recentActivity: combinedActivity
+            };
+          });
+        }
+      } catch (historyError) {
+        console.error('Error fetching updated analysis history:', historyError);
+      }
+      
       // Update team member with fresh analysis results
       setTeamMember(prev => {
         if (!prev) return null;
@@ -297,6 +466,9 @@ const TeamMember = () => {
       
       // Reset the changed flag
       setKeyAreasChanged(false);
+      
+      // Reset any selected historical analysis
+      setSelectedAnalysis(null);
       
       // Switch to details tab to show new analysis
       setActiveTab('details');
@@ -453,6 +625,25 @@ const TeamMember = () => {
                 {teamMember.bio}
               </div>
             </div>
+            
+            {/* Historical Analysis Indicator */}
+            {selectedAnalysis && (
+              <div className="mb-6 bg-blue-50 p-4 rounded-lg border-l-4 border-blue-500">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-sm text-blue-700">
+                      <span className="font-medium">Viewing historical analysis</span> from {new Date(selectedAnalysis.analyzedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <button
+                    onClick={clearHistoricalAnalysis}
+                    className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+                  >
+                    Return to current analysis
+                  </button>
+                </div>
+              </div>
+            )}
             
             {/* Key Areas Changed Alert */}
             {keyAreasChanged && (
@@ -650,10 +841,23 @@ const TeamMember = () => {
                     <div className="flex justify-between items-center">
                       <div>
                         <div className="font-medium text-gray-900">{activity.action}</div>
-                        <div className="text-sm text-gray-500">{activity.details}</div>
+                        {activity.type === 'analysis' ? (
+                          <div 
+                            className="text-sm text-blue-600 hover:text-blue-800 cursor-pointer hover:underline flex items-center"
+                            onClick={() => activity.id && loadHistoricalAnalysis(activity.id)}
+                          >
+                            {activity.details}
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-500">{activity.details}</div>
+                        )}
                       </div>
                       <div className="text-sm text-gray-500">
-                        {new Date(activity.date).toLocaleDateString()}
+                        {new Date(getValidDate(activity.date).toISOString()).toLocaleDateString()}
                       </div>
                     </div>
                   </div>

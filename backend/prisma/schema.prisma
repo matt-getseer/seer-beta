@@ -52,6 +52,9 @@ model User {
   
   // Analysis relationship
   analysis          UserAnalysis?
+  
+  // Analysis history relationship
+  analysisHistory   AnalysisHistory[] @relation("UserAnalysisHistory")
 }
 
 model UserAnalysis {
@@ -63,6 +66,18 @@ model UserAnalysis {
   actionItems     String[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+}
+
+model AnalysisHistory {
+  id              String    @id @default(uuid())
+  userId          String    
+  user            User      @relation("UserAnalysisHistory", fields: [userId], references: [id], onDelete: Cascade)
+  wins            String[]
+  areasForSupport String[]
+  actionItems     String[]
+  analyzedAt      DateTime  @default(now())
+  
+  @@index([userId, analyzedAt(sort: Desc)])
 }
 
 model TeamInvitation {

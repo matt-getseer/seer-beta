@@ -25,6 +25,12 @@ router.get('/team-member/:teamMemberId', requireAuth, MeetingAnalysisController.
 // Analyze team member meetings - this specific route must come before /:id
 router.get('/analyze/:teamMemberId', requireAuth, MeetingAnalysisController.analyzeTeamMemberMeetings);
 
+// Get analysis history for a team member
+router.get('/analysis-history/:teamMemberId', requireAuth, MeetingAnalysisController.getAnalysisHistory);
+
+// Get a specific analysis by ID
+router.get('/analysis/:teamMemberId/:analysisId', requireAuth, MeetingAnalysisController.getAnalysisById);
+
 // Get a specific meeting
 router.get('/:id', requireAuth, MeetingController.getMeetingById);
 

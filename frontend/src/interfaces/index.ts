@@ -25,6 +25,25 @@ export interface KeyArea {
   };
 }
 
+// Activity interface for team member activities
+export interface Activity {
+  id?: string;
+  date: string;
+  action: string;
+  details: string;
+  type?: string;
+}
+
+// Analysis History interface
+export interface AnalysisHistory {
+  id: string;
+  userId: string;
+  analyzedAt: string;
+  wins: string[];
+  areasForSupport: string[];
+  actionItems: string[];
+}
+
 export interface TeamMember extends User {
   department?: string;
   joinDate?: string;
@@ -34,11 +53,7 @@ export interface TeamMember extends User {
   areasForSupport?: string[];
   actionItems?: string[];
   keyAreas?: KeyArea[];
-  recentActivity?: {
-    date: string;
-    action: string;
-    details: string;
-  }[];
+  recentActivity?: Activity[];
 }
 
 // Meeting interfaces
