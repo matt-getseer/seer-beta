@@ -141,6 +141,8 @@ export interface TeamMemberAnalysis {
   wins: string[];
   areasForSupport: string[];
   actionItems: string[];
+  cached?: boolean;
+  lastAnalyzedAt?: string;
 }
 
 // User API functions

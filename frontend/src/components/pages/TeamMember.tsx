@@ -11,6 +11,10 @@ const TeamMember = () => {
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [analysisInfo, setAnalysisInfo] = useState<{
+    cached: boolean;
+    lastAnalyzedAt?: string;
+  } | null>(null);
   
   useEffect(() => {
     const fetchData = async () => {
@@ -21,12 +25,8 @@ const TeamMember = () => {
         // Fetch the user data - IDs are strings in backend, not numbers
         const userData = await userApi.getUser(id);
         
-        // Check if the user has role 'USER'
-        if (userData.role.toUpperCase() !== 'USER') {
-          setError('This page is only available for team members with USER role');
-          setLoading(false);
-          return;
-        }
+        // Check if the user has either USER or ADMIN role
+        // No need for role check here - both USER and ADMIN can access profiles
         
         // Initialize team member data with user details
         let memberData: TeamMemberType = {
@@ -85,6 +85,14 @@ const TeamMember = () => {
           // Try to get analysis from API first
           try {
             const analysis = await meetingApi.analyzeTeamMemberMeetings(id);
+            
+            // Update analysis info to show if we're using cached data
+            if ('cached' in analysis) {
+              setAnalysisInfo({
+                cached: analysis.cached || false,
+                lastAnalyzedAt: analysis.lastAnalyzedAt
+              });
+            }
             
             // Update team member with analysis results
             setTeamMember(prev => {
@@ -228,6 +236,16 @@ const TeamMember = () => {
                 {teamMember.bio}
               </div>
             </div>
+            
+            {/* Analysis Info */}
+            {analysisInfo && (
+              <div className="mb-4 text-sm text-gray-500 italic">
+                {analysisInfo.cached 
+                  ? `Using cached analysis from ${new Date(analysisInfo.lastAnalyzedAt || '').toLocaleString()}`
+                  : `Fresh analysis performed at ${new Date(analysisInfo.lastAnalyzedAt || '').toLocaleString()}`
+                }
+              </div>
+            )}
             
             {/* Three Columns */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

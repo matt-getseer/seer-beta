@@ -21,6 +21,7 @@ model User {
   clerkId           String    @unique
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+  lastAnalyzedAt    DateTime? // When this user's meetings were last analyzed
   
   // Google integration
   googleConnected   Boolean   @default(false)
@@ -44,6 +45,20 @@ model User {
   openaiApiKey      String?   // Encrypted
   hasAnthropicKey   Boolean   @default(false)
   hasOpenAIKey      Boolean   @default(false)
+  
+  // Analysis relationship
+  analysis          UserAnalysis?
+}
+
+model UserAnalysis {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wins            String[]
+  areasForSupport String[]
+  actionItems     String[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 model TeamInvitation {

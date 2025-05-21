@@ -495,12 +495,52 @@ export const analyzeTeamMemberMeetings = async (req: Request, res: Response) => 
     const teamMember = await prisma.user.findUnique({
       where: {
         id: teamMemberId // ID is a string in the schema
+      },
+      include: {
+        analysis: true // Include the cached analysis if it exists
       }
     });
     
     if (!teamMember) {
       return res.status(404).json({ error: 'Team member not found' });
     }
+    
+    // Get most recent meeting date
+    const latestMeeting = await prisma.meeting.findFirst({
+      where: {
+        teamMemberId: teamMemberId,
+        status: 'completed'
+      },
+      orderBy: {
+        date: 'desc'
+      },
+      select: {
+        date: true
+      }
+    });
+    
+    const latestMeetingDate = latestMeeting?.date;
+    const lastAnalyzedAt = teamMember.lastAnalyzedAt;
+    
+    // Check if we have cached analysis and if it's still valid
+    if (
+      teamMember.analysis && 
+      lastAnalyzedAt && 
+      latestMeetingDate && 
+      lastAnalyzedAt > latestMeetingDate
+    ) {
+      console.log(`Using cached analysis for team member ${teamMemberId} from ${lastAnalyzedAt}`);
+      return res.status(200).json({
+        wins: teamMember.analysis.wins,
+        areasForSupport: teamMember.analysis.areasForSupport,
+        actionItems: teamMember.analysis.actionItems,
+        cached: true,
+        lastAnalyzedAt: lastAnalyzedAt
+      });
+    }
+    
+    // If no cached analysis or it's outdated, perform new analysis
+    console.log(`Performing new analysis for team member ${teamMemberId}`);
     
     // Get all meetings for this team member
     const meetings = await prisma.meeting.findMany({
@@ -573,7 +613,45 @@ Each category should have 5-8 items. Make each item concise but descriptive.`;
         actionItems: (parsedResult.actionItems || []).slice(0, 8)
       };
       
-      return res.status(200).json(sanitizedResult);
+      // Save the analysis results to the database for future use
+      const now = new Date();
+      
+      // Use upsert to handle both creation and update cases
+      await prisma.userAnalysis.upsert({
+        where: {
+          userId: teamMemberId
+        },
+        update: {
+          wins: sanitizedResult.wins,
+          areasForSupport: sanitizedResult.areasForSupport,
+          actionItems: sanitizedResult.actionItems,
+          updatedAt: now
+        },
+        create: {
+          userId: teamMemberId,
+          wins: sanitizedResult.wins,
+          areasForSupport: sanitizedResult.areasForSupport,
+          actionItems: sanitizedResult.actionItems,
+          createdAt: now,
+          updatedAt: now
+        }
+      });
+      
+      // Update the lastAnalyzedAt timestamp on the user
+      await prisma.user.update({
+        where: {
+          id: teamMemberId
+        },
+        data: {
+          lastAnalyzedAt: now
+        }
+      });
+      
+      return res.status(200).json({
+        ...sanitizedResult,
+        cached: false,
+        lastAnalyzedAt: now
+      });
     } catch (e) {
       console.error('Error parsing Claude response:', e);
       // Return default structure if parsing fails
