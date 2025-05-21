@@ -46,8 +46,13 @@ router.get('/team', requireAuth, TeamController.getTeam);
 router.get('/ai-settings', requireAuth, APIKeyController.getAISettings);
 router.post('/ai-settings', requireAuth, APIKeyController.saveAISettings);
 
-// Generic user routes - must come after specific paths to avoid catching them
+// Key Areas routes
+router.get('/:userId/key-areas', requireAuth, TeamController.getKeyAreas);
+router.post('/:userId/key-areas', isAdmin, TeamController.createKeyArea);
+router.put('/:userId/key-areas/:areaId', isAdmin, TeamController.updateKeyArea);
+router.delete('/:userId/key-areas/:areaId', isAdmin, TeamController.deleteKeyArea);
+
+// Individual user routes (must come after specific paths to avoid catching them)
 router.get('/:id', requireAuth, AuthController.getUserById);
-router.get('/', AuthController.getAllUsers);
 
 export default router; 

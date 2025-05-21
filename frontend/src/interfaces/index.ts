@@ -9,6 +9,22 @@ export interface User {
   adminId?: string | null;
 }
 
+// Key Area interface
+export interface KeyArea {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  userId: string;
+  createdById: string;
+  createdBy?: {
+    id: string;
+    name: string | null;
+    email: string;
+  };
+}
+
 export interface TeamMember extends User {
   department?: string;
   joinDate?: string;
@@ -17,6 +33,7 @@ export interface TeamMember extends User {
   wins?: string[];
   areasForSupport?: string[];
   actionItems?: string[];
+  keyAreas?: KeyArea[];
   recentActivity?: {
     date: string;
     action: string;

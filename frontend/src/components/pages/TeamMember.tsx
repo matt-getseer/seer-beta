@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useParams } from 'react-router-dom';
-import { userApi, meetingApi } from '../../utils/api';
+import { userApi, meetingApi, keyAreaApi } from '../../utils/api';
 import { analyzeMeetings } from '../../utils/anthropic';
-import type { TeamMember as TeamMemberType } from '../../interfaces';
+import type { TeamMember as TeamMemberType, KeyArea } from '../../interfaces';
+import { Dialog, Transition } from '@headlessui/react';
 
 const TeamMember = () => {
   const { id } = useParams<{ id: string }>();
@@ -15,6 +16,15 @@ const TeamMember = () => {
     cached: boolean;
     lastAnalyzedAt?: string;
   } | null>(null);
+  const [keyAreas, setKeyAreas] = useState<KeyArea[]>([]);
+  const [keyAreaLoading, setKeyAreaLoading] = useState(false);
+  const [newKeyArea, setNewKeyArea] = useState({ name: '', description: '' });
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [addingKeyArea, setAddingKeyArea] = useState(false);
+  const [editingKeyArea, setEditingKeyArea] = useState<string | null>(null);
+  const [editKeyAreaData, setEditKeyAreaData] = useState({ name: '', description: '' });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [keyAreaToDelete, setKeyAreaToDelete] = useState<string | null>(null);
   
   useEffect(() => {
     const fetchData = async () => {
@@ -22,11 +32,12 @@ const TeamMember = () => {
       
       setLoading(true);
       try {
+        // Check if current user is admin
+        const currentUser = await userApi.getCurrentUser();
+        setIsAdmin(currentUser.role === 'admin');
+        
         // Fetch the user data - IDs are strings in backend, not numbers
         const userData = await userApi.getUser(id);
-        
-        // Check if the user has either USER or ADMIN role
-        // No need for role check here - both USER and ADMIN can access profiles
         
         // Initialize team member data with user details
         let memberData: TeamMemberType = {
@@ -42,6 +53,9 @@ const TeamMember = () => {
         };
         
         setTeamMember(memberData);
+        
+        // Fetch key areas for this team member
+        fetchKeyAreas(id);
         
         // Fetch meetings data for this team member
         setAnalyzing(true);
@@ -164,6 +178,82 @@ const TeamMember = () => {
     
     fetchData();
   }, [id]);
+  
+  // Function to fetch key areas
+  const fetchKeyAreas = async (userId: string) => {
+    setKeyAreaLoading(true);
+    try {
+      const keyAreasData = await keyAreaApi.getKeyAreas(userId);
+      setKeyAreas(keyAreasData);
+    } catch (error) {
+      console.error('Error fetching key areas:', error);
+    } finally {
+      setKeyAreaLoading(false);
+    }
+  };
+  
+  // Function to add a new key area
+  const handleAddKeyArea = async () => {
+    if (!id || !newKeyArea.name || !newKeyArea.description) return;
+    
+    try {
+      setAddingKeyArea(true);
+      await keyAreaApi.createKeyArea(id, newKeyArea);
+      setNewKeyArea({ name: '', description: '' });
+      fetchKeyAreas(id);
+    } catch (error) {
+      console.error('Error adding key area:', error);
+    } finally {
+      setAddingKeyArea(false);
+    }
+  };
+  
+  // Function to delete a key area
+  const handleDeleteKeyArea = async (areaId: string) => {
+    if (!id) return;
+    
+    try {
+      await keyAreaApi.deleteKeyArea(id, areaId);
+      fetchKeyAreas(id);
+      setDeleteDialogOpen(false);
+      setKeyAreaToDelete(null);
+    } catch (error) {
+      console.error('Error deleting key area:', error);
+    }
+  };
+  
+  // Function to open delete dialog
+  const openDeleteDialog = (areaId: string) => {
+    setKeyAreaToDelete(areaId);
+    setDeleteDialogOpen(true);
+  };
+  
+  // Function to start editing a key area
+  const handleStartEditKeyArea = (area: KeyArea) => {
+    setEditingKeyArea(area.id);
+    setEditKeyAreaData({
+      name: area.name,
+      description: area.description
+    });
+  };
+  
+  // Function to update a key area
+  const handleUpdateKeyArea = async () => {
+    if (!id || !editingKeyArea || !editKeyAreaData.name || !editKeyAreaData.description) return;
+    
+    try {
+      await keyAreaApi.updateKeyArea(id, editingKeyArea, editKeyAreaData);
+      setEditingKeyArea(null);
+      fetchKeyAreas(id);
+    } catch (error) {
+      console.error('Error updating key area:', error);
+    }
+  };
+  
+  // Function to cancel editing
+  const handleCancelEdit = () => {
+    setEditingKeyArea(null);
+  };
 
   // Show loading state
   if (loading) {
@@ -221,6 +311,16 @@ const TeamMember = () => {
             onClick={() => setActiveTab('activity')}
           >
             Activity
+          </button>
+          <button
+            className={`mr-4 py-2 px-1 font-medium text-base ${
+              activeTab === 'kpis'
+                ? 'text-[#171717] border-b-2 border-[#171717]'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            onClick={() => setActiveTab('kpis')}
+          >
+            Key areas
           </button>
         </div>
       </div>
@@ -304,7 +404,7 @@ const TeamMember = () => {
               </div>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'activity' ? (
           <div className="p-6">
             <h2 className="text-lg font-medium text-gray-900 mb-4">Recent Activity</h2>
             {teamMember.recentActivity && teamMember.recentActivity.length > 0 ? (
@@ -329,8 +429,234 @@ const TeamMember = () => {
               </div>
             )}
           </div>
-        )}
+        ) : activeTab === 'kpis' ? (
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-medium text-gray-900">Key areas</h2>
+              {isAdmin && (
+                <button 
+                  onClick={() => setAddingKeyArea(!addingKeyArea)}
+                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
+                >
+                  {addingKeyArea ? 'Cancel' : 'Add Key Area'}
+                </button>
+              )}
+            </div>
+            
+            {keyAreaLoading ? (
+              <div className="text-center py-4">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+                <p className="mt-2 text-gray-500 text-sm">Loading key areas...</p>
+              </div>
+            ) : (
+              <>
+                {addingKeyArea && isAdmin && (
+                  <div className="bg-gray-50 p-4 rounded-lg mb-4">
+                    <h3 className="font-medium text-gray-900 mb-2">Add New Key Area</h3>
+                    <div className="mb-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                      <input
+                        type="text"
+                        value={newKeyArea.name}
+                        onChange={(e) => setNewKeyArea({...newKeyArea, name: e.target.value})}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Enter key area name"
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                      <textarea
+                        value={newKeyArea.description}
+                        onChange={(e) => setNewKeyArea({...newKeyArea, description: e.target.value})}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Enter key area description"
+                        rows={3}
+                      />
+                    </div>
+                    <button
+                      onClick={handleAddKeyArea}
+                      disabled={!newKeyArea.name || !newKeyArea.description}
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:bg-blue-300"
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+                
+                {keyAreas.length > 0 ? (
+                  <div className="space-y-4">
+                    {keyAreas.map((area) => (
+                      <div key={area.id} className="bg-purple-50 p-4 rounded-lg">
+                        {editingKeyArea === area.id ? (
+                          // Edit form
+                          <div>
+                            <div className="mb-3">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                              <input
+                                type="text"
+                                value={editKeyAreaData.name}
+                                onChange={(e) => setEditKeyAreaData({...editKeyAreaData, name: e.target.value})}
+                                className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="Enter key area name"
+                              />
+                            </div>
+                            <div className="mb-3">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                              <textarea
+                                value={editKeyAreaData.description}
+                                onChange={(e) => setEditKeyAreaData({...editKeyAreaData, description: e.target.value})}
+                                className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="Enter key area description"
+                                rows={3}
+                              />
+                            </div>
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={handleUpdateKeyArea}
+                                disabled={!editKeyAreaData.name || !editKeyAreaData.description}
+                                className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:bg-blue-300"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={handleCancelEdit}
+                                className="px-3 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          // Display mode
+                          <div>
+                            <div className="flex justify-between items-start">
+                              <h3 className="font-medium text-gray-900">{area.name}</h3>
+                              {isAdmin && (
+                                <div className="flex space-x-2">
+                                  <button
+                                    onClick={() => handleStartEditKeyArea(area)}
+                                    className="text-blue-500 hover:text-blue-700"
+                                    title="Edit key area"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    onClick={() => openDeleteDialog(area.id)}
+                                    className="text-red-500 hover:text-red-700"
+                                    title="Delete key area"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            <p className="text-gray-700 mt-2">{area.description}</p>
+                            <div className="mt-2 text-sm text-gray-500">
+                              Added by {area.createdBy?.name || 'Admin'} on {new Date(area.createdAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 p-4 rounded-lg text-gray-500 text-center">
+                    No key areas defined yet
+                    {isAdmin && !addingKeyArea && (
+                      <p className="mt-2 text-sm">
+                        Click the "Add Key Area" button to define areas for the AI to focus on when analyzing this team member's meetings.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            
+            <div className="mt-6 bg-gray-50 p-4 rounded-lg border-l-4 border-blue-500">
+              <h3 className="font-medium text-gray-900 mb-2">How Key Areas Work</h3>
+              <p className="text-gray-700">
+                Key areas are additional focus points for the AI when analyzing this team member's meetings. 
+                These will be added to the analysis prompts to provide more targeted insights relevant to the specific 
+                areas you want to track for this person.
+              </p>
+              <p className="text-gray-700 mt-2">
+                The AI will continue to output the same three categories (Wins, Areas for Support, and Action Items)
+                but with enhanced attention to these key areas.
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
+      
+      {/* Delete Confirmation Dialog */}
+      <Transition appear show={deleteDialogOpen} as={Fragment}>
+        <Dialog 
+          as="div" 
+          className="relative z-10" 
+          onClose={() => setDeleteDialogOpen(false)}
+        >
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-black bg-opacity-25" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4 text-center">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
+              >
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-lg bg-white p-6 text-left align-middle shadow-xl transition-all">
+                  <Dialog.Title 
+                    as="h3" 
+                    className="text-lg font-medium leading-6 text-gray-900"
+                  >
+                    Delete Key Area
+                  </Dialog.Title>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to delete this key area? This action cannot be undone.
+                    </p>
+                  </div>
+
+                  <div className="mt-4 flex space-x-3 justify-end">
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
+                      onClick={() => setDeleteDialogOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+                      onClick={() => keyAreaToDelete && handleDeleteKeyArea(keyAreaToDelete)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
+            </div>
+          </div>
+        </Dialog>
+      </Transition>
     </div>
   );
 };

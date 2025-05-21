@@ -117,6 +117,22 @@ export interface TeamInvitation {
   expires: string;
 }
 
+// Key area interface
+export interface KeyArea {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  userId: string;
+  createdById: string;
+  createdBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
 // Meeting interfaces
 export interface Meeting {
   id: string;
@@ -264,7 +280,39 @@ export const meetingApi = {
   }
 };
 
+// Key Area API functions
+export const keyAreaApi = {
+  // Get key areas for a user
+  getKeyAreas: async (userId: string): Promise<KeyArea[]> => {
+    return fetchApi<KeyArea[]>(`/api/users/${userId}/key-areas`);
+  },
+  
+  // Create a key area
+  createKeyArea: async (userId: string, keyAreaData: { name: string; description: string }): Promise<KeyArea> => {
+    return fetchApi<KeyArea>(`/api/users/${userId}/key-areas`, {
+      method: 'POST',
+      body: JSON.stringify(keyAreaData),
+    });
+  },
+  
+  // Update a key area
+  updateKeyArea: async (userId: string, areaId: string, keyAreaData: { name: string; description: string }): Promise<KeyArea> => {
+    return fetchApi<KeyArea>(`/api/users/${userId}/key-areas/${areaId}`, {
+      method: 'PUT',
+      body: JSON.stringify(keyAreaData),
+    });
+  },
+  
+  // Delete a key area
+  deleteKeyArea: async (userId: string, areaId: string): Promise<{ success: boolean }> => {
+    return fetchApi<{ success: boolean }>(`/api/users/${userId}/key-areas/${areaId}`, {
+      method: 'DELETE',
+    });
+  }
+};
+
 export default {
   userApi,
   meetingApi,
+  keyAreaApi
 }; 

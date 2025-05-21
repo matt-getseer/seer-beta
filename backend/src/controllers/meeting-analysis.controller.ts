@@ -86,6 +86,19 @@ export class MeetingAnalysisController {
         return res.status(404).json({ error: 'Team member not found' });
       }
       
+      // Get key areas for this team member
+      const keyAreas = await prisma.keyArea.findMany({
+        where: {
+          userId: teamMemberId
+        },
+        select: {
+          name: true,
+          description: true
+        }
+      });
+      
+      console.log(`Found ${keyAreas.length} key areas for team member ${teamMemberId}`);
+      
       // Get most recent meeting date
       const latestMeeting = await prisma.meeting.findFirst({
         where: {
@@ -155,15 +168,24 @@ export class MeetingAnalysisController {
       }));
       
       // Create prompt for Anthropic
-      const prompt = `I have meeting data for a team member that I'd like you to analyze to find recurring themes.
+      let prompt = `I have meeting data for a team member that I'd like you to analyze to find recurring themes.
 Based on these meetings, I need you to identify:
 1. 5-8 significant wins the person has achieved
 2. 5-8 areas where they need support
 3. 5-8 action items they should focus on
 
-Look for patterns across meetings, not just single occurrences.
+Look for patterns across meetings, not just single occurrences.`;
 
-Here's the meeting data in JSON format:
+      // Add key areas to the prompt if there are any
+      if (keyAreas.length > 0) {
+        prompt += `\n\nAdditionally, pay special attention to the following key focus areas for this team member:`;
+        keyAreas.forEach((area, index) => {
+          prompt += `\n${index + 1}. ${area.name}: ${area.description}`;
+        });
+        prompt += `\n\nEnsure your analysis highlights points related to these key areas within the three output categories.`;
+      }
+
+      prompt += `\n\nHere's the meeting data in JSON format:
 ${JSON.stringify(meetingData, null, 2)}
 
 Please respond in JSON format with exactly this structure:

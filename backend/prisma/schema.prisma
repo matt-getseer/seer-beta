@@ -38,6 +38,10 @@ model User {
   // Meetings relationship
   meetings          Meeting[]  @relation("UserMeetings")
   
+  // Key Areas relationship
+  keyAreas          KeyArea[]  @relation("UserKeyAreas")
+  createdKeyAreas   KeyArea[]  @relation("CreatedKeyAreas")
+  
   // AI settings for custom processing
   useCustomAI       Boolean   @default(false)
   aiProvider        String    @default("anthropic") // "anthropic" or "openai"
@@ -107,4 +111,20 @@ model Meeting {
   // Relations
   createdBy         String    // User id who created this meeting
   user              User      @relation("UserMeetings", fields: [createdBy], references: [id], onDelete: Cascade)
+}
+
+model KeyArea {
+  id          String    @id @default(uuid())
+  name        String
+  description String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // User this key area belongs to
+  userId      String
+  user        User      @relation("UserKeyAreas", fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Admin who created this key area
+  createdById String
+  createdBy   User      @relation("CreatedKeyAreas", fields: [createdById], references: [id], onDelete: Cascade)
 }

@@ -434,4 +434,204 @@ export class TeamController {
       });
     }
   }
+
+  /**
+   * Get key areas for a team member
+   */
+  static async getKeyAreas(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+      
+      if (!userId) {
+        return res.status(400).json({ error: 'User ID is required' });
+      }
+      
+      // Get user to check if they exist
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+      
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // Check if the current user is an admin or the user themselves
+      const currentUserId = req.user?.id;
+      const isAdmin = req.user?.role === 'admin';
+      const isSelf = currentUserId === userId;
+      
+      if (!isAdmin && !isSelf) {
+        return res.status(403).json({ error: 'Unauthorized to access this user\'s key areas' });
+      }
+      
+      // Get key areas for the user
+      const keyAreas = await prisma.keyArea.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          }
+        }
+      });
+      
+      res.json(keyAreas);
+    } catch (error) {
+      console.error('Error fetching key areas:', error);
+      res.status(500).json({ 
+        error: 'Error fetching key areas',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  
+  /**
+   * Create a key area for a team member (admin only)
+   */
+  static async createKeyArea(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+      const { name, description } = req.body;
+      const adminId = req.user?.id;
+      
+      if (!userId || !name || !description) {
+        return res.status(400).json({ 
+          error: 'User ID, name, and description are required' 
+        });
+      }
+      
+      // Check if the user exists and is a team member of this admin
+      const user = await prisma.user.findFirst({
+        where: {
+          id: userId,
+          adminId
+        }
+      });
+      
+      if (!user) {
+        return res.status(404).json({ 
+          error: 'Team member not found or not part of your team' 
+        });
+      }
+      
+      // Create the key area
+      const keyArea = await prisma.keyArea.create({
+        data: {
+          name,
+          description,
+          userId,
+          createdById: adminId
+        }
+      });
+      
+      res.status(201).json(keyArea);
+    } catch (error) {
+      console.error('Error creating key area:', error);
+      res.status(500).json({ 
+        error: 'Error creating key area',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  
+  /**
+   * Update a key area (admin only)
+   */
+  static async updateKeyArea(req: Request, res: Response) {
+    try {
+      const { userId, areaId } = req.params;
+      const { name, description } = req.body;
+      const adminId = req.user?.id;
+      
+      if (!userId || !areaId || !name || !description) {
+        return res.status(400).json({ 
+          error: 'User ID, area ID, name, and description are required' 
+        });
+      }
+      
+      // Check if the key area exists and belongs to a team member of this admin
+      const keyArea = await prisma.keyArea.findFirst({
+        where: {
+          id: areaId,
+          userId,
+          user: {
+            adminId
+          }
+        }
+      });
+      
+      if (!keyArea) {
+        return res.status(404).json({ 
+          error: 'Key area not found or not for your team member' 
+        });
+      }
+      
+      // Update the key area
+      const updatedKeyArea = await prisma.keyArea.update({
+        where: { id: areaId },
+        data: {
+          name,
+          description
+        }
+      });
+      
+      res.json(updatedKeyArea);
+    } catch (error) {
+      console.error('Error updating key area:', error);
+      res.status(500).json({ 
+        error: 'Error updating key area',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  
+  /**
+   * Delete a key area (admin only)
+   */
+  static async deleteKeyArea(req: Request, res: Response) {
+    try {
+      const { userId, areaId } = req.params;
+      const adminId = req.user?.id;
+      
+      if (!userId || !areaId) {
+        return res.status(400).json({ 
+          error: 'User ID and area ID are required' 
+        });
+      }
+      
+      // Check if the key area exists and belongs to a team member of this admin
+      const keyArea = await prisma.keyArea.findFirst({
+        where: {
+          id: areaId,
+          userId,
+          user: {
+            adminId
+          }
+        }
+      });
+      
+      if (!keyArea) {
+        return res.status(404).json({ 
+          error: 'Key area not found or not for your team member' 
+        });
+      }
+      
+      // Delete the key area
+      await prisma.keyArea.delete({
+        where: { id: areaId }
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting key area:', error);
+      res.status(500).json({ 
+        error: 'Error deleting key area',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
 } 
