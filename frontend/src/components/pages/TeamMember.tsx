@@ -612,7 +612,11 @@ const TeamMember = () => {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-base font-medium text-[#171717]">
-                              <Link to={`/meetings/${meeting.id}`} className="hover:text-indigo-600 hover:underline">
+                              <Link 
+                                to={`/meetings/${meeting.id}`} 
+                                state={{ from: 'teamMember', teamMemberId: id }}
+                                className="hover:text-indigo-600 hover:underline"
+                              >
                                 {meeting.title}
                               </Link>
                             </div>

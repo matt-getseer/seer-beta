@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, VideoCamera } from 'phosphor-react';
 import { useAuth } from '@clerk/clerk-react';
@@ -29,6 +29,9 @@ interface Meeting {
 
 const MeetingOverview = () => {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const fromTeamMember = location.state?.from === 'teamMember';
+  const teamMemberId = location.state?.teamMemberId;
   const [activeTab, setActiveTab] = useState('details');
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,9 +139,15 @@ const MeetingOverview = () => {
     return (
       <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded">
         <p>{error || 'Meeting not found'}</p>
-        <Link to="/meetings" className="underline text-red-700 font-medium mt-2 inline-block">
-          Back to Meetings
-        </Link>
+        {fromTeamMember && teamMemberId ? (
+          <Link to={`/team/${teamMemberId}`} className="underline text-red-700 font-medium mt-2 inline-block">
+            Back to Team Member
+          </Link>
+        ) : (
+          <Link to="/meetings" className="underline text-red-700 font-medium mt-2 inline-block">
+            Back to Meetings
+          </Link>
+        )}
       </div>
     );
   }
@@ -146,10 +155,17 @@ const MeetingOverview = () => {
   return (
     <div>
       <div className="mb-2">
-        <Link to="/meetings" className="inline-flex items-center text-gray-600 hover:text-gray-900">
-          <ArrowLeft size={16} className="mr-1" />
-          Back to Meetings
-        </Link>
+        {fromTeamMember && teamMemberId ? (
+          <Link to={`/team/${teamMemberId}`} className="inline-flex items-center text-gray-600 hover:text-gray-900">
+            <ArrowLeft size={16} className="mr-1" />
+            Back to Team Member
+          </Link>
+        ) : (
+          <Link to="/meetings" className="inline-flex items-center text-gray-600 hover:text-gray-900">
+            <ArrowLeft size={16} className="mr-1" />
+            Back to Meetings
+          </Link>
+        )}
       </div>
       
       <div className="mb-6">
