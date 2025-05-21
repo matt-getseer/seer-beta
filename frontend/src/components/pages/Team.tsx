@@ -34,6 +34,9 @@ const Team = () => {
   const [memberToDelete, setMemberToDelete] = useState<TeamMember | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   
+  // For delete confirmation text inputs
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  
   // For invite dialog
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -44,6 +47,9 @@ const Team = () => {
   const [isDeleteInviteModalOpen, setIsDeleteInviteModalOpen] = useState(false);
   const [inviteToDelete, setInviteToDelete] = useState<TeamInvitation | null>(null);
   const [isDeletingInvite, setIsDeletingInvite] = useState(false);
+  
+  // For delete invitation text inputs
+  const [deleteInviteConfirmText, setDeleteInviteConfirmText] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -173,6 +179,7 @@ const Team = () => {
   // Open delete confirmation modal
   const confirmDelete = (member: TeamMember) => {
     setMemberToDelete(member);
+    setDeleteConfirmText(''); // Reset confirmation text
     setIsDeleteModalOpen(true);
   };
   
@@ -280,6 +287,7 @@ const Team = () => {
   // Open delete invitation confirmation modal
   const confirmDeleteInvitation = (invitation: TeamInvitation) => {
     setInviteToDelete(invitation);
+    setDeleteInviteConfirmText(''); // Reset confirmation text
     setIsDeleteInviteModalOpen(true);
   };
   
@@ -426,9 +434,15 @@ const Team = () => {
                         </div>
                         <div className="ml-4">
                           <div className="text-base font-medium text-[#171717]">
-                            <Link to={`/team/${member.id}`} className="hover:text-indigo-600 hover:underline">
-                              {member.name || 'Unnamed User'}
-                            </Link>
+                            {member.role === 'admin' ? (
+                              // Admin users don't have profile pages, so no link
+                              member.name || 'Unnamed User'
+                            ) : (
+                              // Non-admin users have profile pages with links
+                              <Link to={`/team/${member.id}`} className="hover:text-indigo-600 hover:underline">
+                                {member.name || 'Unnamed User'}
+                              </Link>
+                            )}
                           </div>
                           <div className="text-sm text-gray-500">{member.email}</div>
                           <div className="text-xs text-gray-400 mt-1">{member.role}</div>
@@ -572,6 +586,20 @@ const Team = () => {
                     <p className="text-sm text-gray-500">
                       Are you sure you want to remove <strong>{memberToDelete?.name || memberToDelete?.email}</strong> from your team? This action cannot be undone.
                     </p>
+                    
+                    <div className="mt-4">
+                      <label htmlFor="confirm-delete" className="block text-sm font-medium text-gray-700 mb-1">
+                        Type DELETE to confirm
+                      </label>
+                      <input
+                        type="text"
+                        id="confirm-delete"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500"
+                        value={deleteConfirmText}
+                        onChange={(e) => setDeleteConfirmText(e.target.value)}
+                        placeholder="DELETE"
+                      />
+                    </div>
                   </div>
 
                   <div className="mt-4 flex justify-end space-x-3">
@@ -586,7 +614,7 @@ const Team = () => {
                       type="button"
                       className="inline-flex justify-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50"
                       onClick={handleDeleteMember}
-                      disabled={isDeleting}
+                      disabled={isDeleting || deleteConfirmText !== 'DELETE'}
                     >
                       {isDeleting ? 'Removing...' : 'Remove'}
                     </button>
@@ -718,6 +746,20 @@ const Team = () => {
                     <p className="text-sm text-gray-500">
                       Are you sure you want to cancel the invitation to <strong>{inviteToDelete?.email}</strong>? This action cannot be undone.
                     </p>
+                    
+                    <div className="mt-4">
+                      <label htmlFor="confirm-delete-invite" className="block text-sm font-medium text-gray-700 mb-1">
+                        Type DELETE to confirm
+                      </label>
+                      <input
+                        type="text"
+                        id="confirm-delete-invite"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500"
+                        value={deleteInviteConfirmText}
+                        onChange={(e) => setDeleteInviteConfirmText(e.target.value)}
+                        placeholder="DELETE"
+                      />
+                    </div>
                   </div>
 
                   <div className="mt-4 flex justify-end space-x-3">
@@ -732,7 +774,7 @@ const Team = () => {
                       type="button"
                       className="inline-flex justify-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50"
                       onClick={handleDeleteInvitation}
-                      disabled={isDeletingInvite}
+                      disabled={isDeletingInvite || deleteInviteConfirmText !== 'DELETE'}
                     >
                       {isDeletingInvite ? 'Canceling...' : 'Cancel Invitation'}
                     </button>

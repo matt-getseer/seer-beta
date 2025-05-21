@@ -508,7 +508,7 @@ const TeamMember = () => {
                       Analyzing...
                     </>
                   ) : (
-                    <>Refresh Analysis with Key Areas</>
+                    <>Refresh Analysis</>
                   )}
                 </button>
                 {isAdmin && (
@@ -658,19 +658,10 @@ const TeamMember = () => {
             <div className="mt-6 bg-gray-50 p-4 rounded-lg border-l-4 border-blue-500">
               <h3 className="font-medium text-gray-900 mb-2">How Key Areas Work</h3>
               <p className="text-gray-700">
-                Key areas are additional focus points for the AI when analyzing this team member's meetings. 
+                Key areas are additional focus points when analyzing team member's meetings. 
                 These will be added to the analysis prompts to provide more targeted insights relevant to the specific 
-                areas you want to track for this person.
-              </p>
-              <p className="text-gray-700 mt-2">
-                The AI will continue to output the same three categories (Wins, Areas for Support, and Action Items)
-                but with enhanced attention to these key areas.
-              </p>
-              <p className="text-gray-700 mt-2">
-                When you add, update, or delete key areas, a "Refresh Analysis" button will appear. Click this button to 
-                run a fresh analysis that takes into account the updated key areas. New meetings are automatically analyzed 
-                when they occur.
-              </p>
+                areas you want to track.
+                </p>
             </div>
           </div>
         ) : null}
