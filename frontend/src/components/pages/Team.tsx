@@ -1,21 +1,32 @@
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { userApi } from '../../utils/api';
-import type { User, InviteStatus } from '../../utils/api';
+import type { User, InviteStatus, InvitationResponse, TeamInvitation } from '../../utils/api';
 import { formatDistanceToNow } from 'date-fns';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
-import { TrashSimple, Plus, MagnifyingGlass, CaretDown } from 'phosphor-react';
+import { TrashSimple, Plus, MagnifyingGlass, CaretDown, Clock } from 'phosphor-react';
 import { Link } from 'react-router-dom';
 
 interface TeamMember extends User {
   lastSignedIn?: string;
 }
 
+// Define an extended error type for the invite API
+interface InviteErrorResponse {
+  error: string;
+  details?: string;
+  status?: number;
+  canInvite?: boolean;
+  currentCount?: number;
+  remainingInvites?: number;
+}
+
 const Team = () => {
   const { user, isSignedIn } = useUser();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [inviteStatus, setInviteStatus] = useState<InviteStatus | null>(null);
+  const [pendingInvitations, setPendingInvitations] = useState<TeamInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('all');
@@ -32,6 +43,11 @@ const Team = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [isInviting, setIsInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  
+  // For invitation delete confirmation
+  const [isDeleteInviteModalOpen, setIsDeleteInviteModalOpen] = useState(false);
+  const [inviteToDelete, setInviteToDelete] = useState<TeamInvitation | null>(null);
+  const [isDeletingInvite, setIsDeletingInvite] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -48,10 +64,11 @@ const Team = () => {
           if (currentUser?.role === 'admin') {
             setIsAdmin(true);
             
-            // Fetch team members and invite status
-            const [members, status] = await Promise.all([
+            // Fetch team members, invite status, and pending invitations
+            const [members, status, invitations] = await Promise.all([
               userApi.getTeamMembers(),
-              userApi.getInviteStatus()
+              userApi.getInviteStatus(),
+              userApi.getPendingInvitations()
             ]);
             
             // Transform the data to match our component's needs
@@ -64,6 +81,7 @@ const Team = () => {
             
             setTeamMembers(formattedMembers);
             setInviteStatus(status);
+            setPendingInvitations(invitations);
           } else {
             // Regular users just see all users
             const users = await userApi.getUsers();
@@ -165,7 +183,9 @@ const Team = () => {
       const response = await userApi.sendInvitation(inviteEmail);
       
       // Update the invite status with the new counts
-      setInviteStatus(response.inviteStatus);
+      if (response.inviteStatus) {
+        setInviteStatus(response.inviteStatus);
+      }
       
       // Reset the form and close the modal
       setInviteEmail('');
@@ -178,6 +198,18 @@ const Team = () => {
       // Extract error message from API response if available
       const errorMessage = err.error || err.message || 'Failed to send invitation. Please try again.';
       setInviteError(errorMessage);
+      
+      // If the error response contains invite status information, update it
+      if (err && typeof err === 'object') {
+        const errorResp = err as InviteErrorResponse;
+        if (errorResp.canInvite !== undefined) {
+          setInviteStatus({
+            canInvite: errorResp.canInvite,
+            currentCount: errorResp.currentCount || 0,
+            remainingInvites: errorResp.remainingInvites || 0
+          });
+        }
+      }
     } finally {
       setIsInviting(false);
     }
@@ -192,6 +224,51 @@ const Team = () => {
       member.role.toLowerCase().includes(searchTermLower)
     );
   });
+
+  // Filter pending invitations based on search term
+  const filteredInvitations = pendingInvitations.filter(invitation => {
+    const searchTermLower = searchTerm.toLowerCase();
+    return invitation.email.toLowerCase().includes(searchTermLower);
+  });
+
+  // Open delete invitation confirmation modal
+  const confirmDeleteInvitation = (invitation: TeamInvitation) => {
+    setInviteToDelete(invitation);
+    setIsDeleteInviteModalOpen(true);
+  };
+  
+  // Handle invitation deletion
+  const handleDeleteInvitation = async () => {
+    if (!inviteToDelete) return;
+    
+    try {
+      setIsDeletingInvite(true);
+      await userApi.cancelInvitation(inviteToDelete.id);
+      
+      // Update the UI
+      setPendingInvitations(prev => prev.filter(inv => inv.id !== inviteToDelete.id));
+      
+      // Update invite status
+      if (inviteStatus) {
+        const pendingCount = (inviteStatus.pendingInvitations || 0) - 1;
+        setInviteStatus({
+          ...inviteStatus,
+          pendingInvitations: pendingCount,
+          remainingInvites: inviteStatus.remainingInvites + 1,
+          canInvite: true
+        });
+      }
+      
+      // Close the modal
+      setIsDeleteInviteModalOpen(false);
+      setInviteToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete invitation:', err);
+      setError('Failed to cancel invitation. Please try again.');
+    } finally {
+      setIsDeletingInvite(false);
+    }
+  };
 
   return (
     <div>
@@ -219,6 +296,11 @@ const Team = () => {
             onClick={() => setActiveTab('invitations')}
           >
             Invitations
+            {inviteStatus?.pendingInvitations ? (
+              <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                {inviteStatus.pendingInvitations}
+              </span>
+            ) : null}
           </button>
         </div>
       </div>
@@ -264,72 +346,146 @@ const Team = () => {
       <div className="bg-white shadow rounded-lg overflow-hidden">
         {loading ? (
           <div className="p-6 text-center">
-            <p className="text-gray-500">Loading users...</p>
+            <p className="text-gray-500">Loading...</p>
           </div>
         ) : error ? (
           <div className="p-6 text-center text-red-500">
             <p>{error}</p>
           </div>
-        ) : filteredTeamMembers.length === 0 ? (
-          <div className="p-6 text-center">
-            <p className="text-gray-500">No team members found.</p>
-          </div>
-        ) : (
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last signed in</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                {isAdmin && (
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredTeamMembers.map((member) => (
-                <tr key={member.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
-                        {member.name?.charAt(0) || member.email.charAt(0)}
-                      </div>
-                      <div className="ml-4">
-                        <div className="text-base font-medium text-[#171717]">
-                          <Link to={`/team/${member.id}`} className="hover:text-indigo-600 hover:underline">
-                            {member.name || 'Unnamed User'}
-                          </Link>
-                        </div>
-                        <div className="text-sm text-gray-500">{member.email}</div>
-                        <div className="text-xs text-gray-400 mt-1">{member.role}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
-                    {member.lastSignedIn ? formatDate(member.lastSignedIn) : 'Never'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
-                    {formatDate(member.createdAt)}
-                  </td>
+        ) : activeTab === 'all' ? (
+          // Team Members Table
+          filteredTeamMembers.length === 0 ? (
+            <div className="p-6 text-center">
+              <p className="text-gray-500">No team members found.</p>
+            </div>
+          ) : (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last signed in</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
                   {isAdmin && (
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      {member.adminId === null ? (
-                        <span className="text-gray-400 italic">Admin</span>
-                      ) : (
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredTeamMembers.map((member) => (
+                  <tr key={member.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
+                          {member.name?.charAt(0) || member.email.charAt(0)}
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-base font-medium text-[#171717]">
+                            <Link to={`/team/${member.id}`} className="hover:text-indigo-600 hover:underline">
+                              {member.name || 'Unnamed User'}
+                            </Link>
+                          </div>
+                          <div className="text-sm text-gray-500">{member.email}</div>
+                          <div className="text-xs text-gray-400 mt-1">{member.role}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                      {member.lastSignedIn ? formatDate(member.lastSignedIn) : 'Never'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                      {formatDate(member.createdAt)}
+                    </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        {member.adminId === null ? (
+                          <span className="text-gray-400 italic">Admin</span>
+                        ) : (
+                          <button
+                            onClick={() => confirmDelete(member)}
+                            className="text-red-600 hover:text-red-900"
+                            title="Remove team member"
+                          >
+                            <TrashSimple size={20} />
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        ) : (
+          // Pending Invitations Table
+          filteredInvitations.length === 0 ? (
+            <div className="p-6 text-center">
+              <p className="text-gray-500">No pending invitations.</p>
+            </div>
+          ) : (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sent</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expires</th>
+                  {isAdmin && (
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredInvitations.map((invitation) => (
+                  <tr key={invitation.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
+                          {invitation.email.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-base font-medium text-[#171717]">
+                            {invitation.email}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                        {invitation.status.charAt(0).toUpperCase() + invitation.status.slice(1)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                      {formatDate(invitation.createdAt)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
+                      {formatDate(invitation.expires)}
+                    </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
-                          onClick={() => confirmDelete(member)}
+                          onClick={() => {
+                            // In a real app we'd create logic to resend here
+                            console.log(`Resend invitation to: ${invitation.email}`);
+                          }}
+                          className="text-indigo-600 hover:text-indigo-900 mr-4"
+                          title="Resend invitation"
+                        >
+                          <Clock size={20} />
+                        </button>
+                        <button
+                          onClick={() => confirmDeleteInvitation(invitation)}
                           className="text-red-600 hover:text-red-900"
-                          title="Remove team member"
+                          title="Cancel invitation"
                         >
                           <TrashSimple size={20} />
                         </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
         )}
       </div>
       
@@ -470,6 +626,69 @@ const Team = () => {
                       disabled={isInviting || !inviteEmail.trim()}
                     >
                       {isInviting ? 'Sending...' : 'Send Invitation'}
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
+            </div>
+          </div>
+        </Dialog>
+      </Transition>
+      
+      {/* Delete Invitation Confirmation Dialog */}
+      <Transition appear show={isDeleteInviteModalOpen} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={() => setIsDeleteInviteModalOpen(false)}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-black bg-opacity-25" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4 text-center">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
+              >
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+                  <Dialog.Title
+                    as="h3"
+                    className="text-lg font-medium leading-6 text-gray-900"
+                  >
+                    Cancel Invitation
+                  </Dialog.Title>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to cancel the invitation to <strong>{inviteToDelete?.email}</strong>? This action cannot be undone.
+                    </p>
+                  </div>
+
+                  <div className="mt-4 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
+                      onClick={() => setIsDeleteInviteModalOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50"
+                      onClick={handleDeleteInvitation}
+                      disabled={isDeletingInvite}
+                    >
+                      {isDeletingInvite ? 'Canceling...' : 'Cancel Invitation'}
                     </button>
                   </div>
                 </Dialog.Panel>

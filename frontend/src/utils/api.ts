@@ -107,6 +107,16 @@ export interface InvitationResponse {
   inviteStatus: InviteStatus;
 }
 
+// Team invitation
+export interface TeamInvitation {
+  id: string;
+  email: string;
+  createdAt: string;
+  updatedAt: string;
+  status: string;
+  expires: string;
+}
+
 // User API functions
 export const userApi = {
   // Get all users
@@ -170,6 +180,18 @@ export const userApi = {
   // Remove a team member (admin only)
   removeTeamMember: async (userId: number): Promise<void> => {
     return fetchApi<void>(`/api/users/team-members/${userId}`, {
+      method: 'DELETE',
+    });
+  },
+  
+  // Get pending invitations
+  getPendingInvitations: async (): Promise<TeamInvitation[]> => {
+    return fetchApi<TeamInvitation[]>('/api/users/invitations');
+  },
+  
+  // Cancel an invitation
+  cancelInvitation: async (invitationId: string): Promise<{ success: boolean }> => {
+    return fetchApi<{ success: boolean }>(`/api/users/invitations/${invitationId}`, {
       method: 'DELETE',
     });
   },

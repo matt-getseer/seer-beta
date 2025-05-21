@@ -36,6 +36,14 @@ model User {
   
   // Meetings relationship
   meetings          Meeting[]  @relation("UserMeetings")
+  
+  // AI settings for custom processing
+  useCustomAI       Boolean   @default(false)
+  aiProvider        String    @default("anthropic") // "anthropic" or "openai"
+  anthropicApiKey   String?   // Encrypted
+  openaiApiKey      String?   // Encrypted
+  hasAnthropicKey   Boolean   @default(false)
+  hasOpenAIKey      Boolean   @default(false)
 }
 
 model TeamInvitation {
