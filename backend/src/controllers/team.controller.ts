@@ -39,9 +39,9 @@ export class TeamController {
       });
       
       res.json({ 
-        canInvite: memberCount < 3,
+        canInvite: memberCount < 4,
         currentCount: memberCount,
-        remainingInvites: 3 - memberCount
+        remainingInvites: 4 - memberCount
       });
     } catch (error) {
       console.error('Error checking invitation ability:', error);
@@ -176,7 +176,7 @@ export class TeamController {
         where: { adminId }
       });
       
-      if (memberCount >= 3) {
+      if (memberCount >= 4) {
         return res.status(403).json({ 
           error: 'You have reached the maximum number of team members',
           canInvite: false,
@@ -266,10 +266,10 @@ export class TeamController {
         success: true,
         message: `Invitation sent to ${email}`,
         inviteStatus: {
-          canInvite: (updatedMemberCount + pendingInvitationsCount) < 3,
+          canInvite: (updatedMemberCount + pendingInvitationsCount) < 4,
           currentCount: updatedMemberCount,
           pendingInvitations: pendingInvitationsCount,
-          remainingInvites: 3 - updatedMemberCount - pendingInvitationsCount
+          remainingInvites: 4 - updatedMemberCount - pendingInvitationsCount
         }
       });
     } catch (error) {

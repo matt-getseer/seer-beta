@@ -275,8 +275,8 @@ export const meetingApi = {
   },
   
   // Analyze team member meetings to extract recurring themes
-  analyzeTeamMemberMeetings: async (teamMemberId: string): Promise<TeamMemberAnalysis> => {
-    return fetchApi<TeamMemberAnalysis>(`/api/meetings/analyze/${teamMemberId}`);
+  analyzeTeamMemberMeetings: async (teamMemberId: string, forceRefresh: boolean = false): Promise<TeamMemberAnalysis> => {
+    return fetchApi<TeamMemberAnalysis>(`/api/meetings/analyze/${teamMemberId}?forceRefresh=${forceRefresh}`);
   }
 };
 

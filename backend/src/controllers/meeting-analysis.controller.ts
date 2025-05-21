@@ -65,12 +65,13 @@ export class MeetingAnalysisController {
       const userId = req.user?.id;
       const userRole = req.user?.role;
       const teamMemberId = req.params.teamMemberId;
+      const forceRefresh = req.query.forceRefresh === 'true';
       
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
       }
       
-      console.log(`Analyzing meetings for team member: ${teamMemberId} by user: ${userId}, role: ${userRole}`);
+      console.log(`Analyzing meetings for team member: ${teamMemberId} by user: ${userId}, role: ${userRole}${forceRefresh ? ' (forced refresh)' : ''}`);
       
       // First check if team member exists
       const teamMember = await prisma.user.findUnique({
@@ -118,6 +119,7 @@ export class MeetingAnalysisController {
       
       // Check if we have cached analysis and if it's still valid
       if (
+        !forceRefresh &&
         teamMember.analysis && 
         lastAnalyzedAt && 
         latestMeetingDate && 

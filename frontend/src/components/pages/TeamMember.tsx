@@ -25,6 +25,8 @@ const TeamMember = () => {
   const [editKeyAreaData, setEditKeyAreaData] = useState({ name: '', description: '' });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [keyAreaToDelete, setKeyAreaToDelete] = useState<string | null>(null);
+  const [keyAreasChanged, setKeyAreasChanged] = useState(false);
+  const [refreshAnalysisLoading, setRefreshAnalysisLoading] = useState(false);
   
   useEffect(() => {
     const fetchData = async () => {
@@ -200,7 +202,8 @@ const TeamMember = () => {
       setAddingKeyArea(true);
       await keyAreaApi.createKeyArea(id, newKeyArea);
       setNewKeyArea({ name: '', description: '' });
-      fetchKeyAreas(id);
+      await fetchKeyAreas(id);
+      setKeyAreasChanged(true);
     } catch (error) {
       console.error('Error adding key area:', error);
     } finally {
@@ -214,9 +217,10 @@ const TeamMember = () => {
     
     try {
       await keyAreaApi.deleteKeyArea(id, areaId);
-      fetchKeyAreas(id);
+      await fetchKeyAreas(id);
       setDeleteDialogOpen(false);
       setKeyAreaToDelete(null);
+      setKeyAreasChanged(true);
     } catch (error) {
       console.error('Error deleting key area:', error);
     }
@@ -244,7 +248,8 @@ const TeamMember = () => {
     try {
       await keyAreaApi.updateKeyArea(id, editingKeyArea, editKeyAreaData);
       setEditingKeyArea(null);
-      fetchKeyAreas(id);
+      await fetchKeyAreas(id);
+      setKeyAreasChanged(true);
     } catch (error) {
       console.error('Error updating key area:', error);
     }
@@ -253,6 +258,45 @@ const TeamMember = () => {
   // Function to cancel editing
   const handleCancelEdit = () => {
     setEditingKeyArea(null);
+  };
+
+  // Function to refresh analysis with new key areas
+  const refreshAnalysis = async () => {
+    if (!id) return;
+    
+    try {
+      setRefreshAnalysisLoading(true);
+      
+      // Call API with forceRefresh=true to get fresh analysis
+      const analysis = await meetingApi.analyzeTeamMemberMeetings(id, true);
+      
+      // Update analysis info
+      setAnalysisInfo({
+        cached: false,
+        lastAnalyzedAt: analysis.lastAnalyzedAt
+      });
+      
+      // Update team member with fresh analysis results
+      setTeamMember(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          wins: analysis.wins,
+          areasForSupport: analysis.areasForSupport,
+          actionItems: analysis.actionItems
+        };
+      });
+      
+      // Reset the changed flag
+      setKeyAreasChanged(false);
+      
+      // Switch to details tab to show new analysis
+      setActiveTab('details');
+    } catch (error) {
+      console.error('Error refreshing analysis:', error);
+    } finally {
+      setRefreshAnalysisLoading(false);
+    }
   };
 
   // Show loading state
@@ -336,6 +380,24 @@ const TeamMember = () => {
                 {teamMember.bio}
               </div>
             </div>
+            
+            {/* Key Areas Changed Alert */}
+            {keyAreasChanged && (
+              <div className="mb-6 bg-yellow-50 p-4 rounded-lg border-l-4 border-yellow-500">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-yellow-700">
+                      Key areas have been updated. Go to the <button onClick={() => setActiveTab('kpis')} className="font-medium underline">Key areas</button> tab to refresh the analysis.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             
             {/* Analysis Info */}
             {analysisInfo && (
@@ -433,14 +495,31 @@ const TeamMember = () => {
           <div className="p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-medium text-gray-900">Key areas</h2>
-              {isAdmin && (
+              <div className="flex space-x-2">
+                {/* Temporarily show the button regardless of keyAreasChanged state */}
                 <button 
-                  onClick={() => setAddingKeyArea(!addingKeyArea)}
-                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
+                  onClick={refreshAnalysis}
+                  disabled={refreshAnalysisLoading}
+                  className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm disabled:bg-green-300 flex items-center"
                 >
-                  {addingKeyArea ? 'Cancel' : 'Add Key Area'}
+                  {refreshAnalysisLoading ? (
+                    <>
+                      <span className="animate-spin h-4 w-4 border-b-2 border-white rounded-full mr-2"></span>
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>Refresh Analysis with Key Areas</>
+                  )}
                 </button>
-              )}
+                {isAdmin && (
+                  <button 
+                    onClick={() => setAddingKeyArea(!addingKeyArea)}
+                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
+                  >
+                    {addingKeyArea ? 'Cancel' : 'Add Key Area'}
+                  </button>
+                )}
+              </div>
             </div>
             
             {keyAreaLoading ? (
@@ -586,6 +665,11 @@ const TeamMember = () => {
               <p className="text-gray-700 mt-2">
                 The AI will continue to output the same three categories (Wins, Areas for Support, and Action Items)
                 but with enhanced attention to these key areas.
+              </p>
+              <p className="text-gray-700 mt-2">
+                When you add, update, or delete key areas, a "Refresh Analysis" button will appear. Click this button to 
+                run a fresh analysis that takes into account the updated key areas. New meetings are automatically analyzed 
+                when they occur.
               </p>
             </div>
           </div>
