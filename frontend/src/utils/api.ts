@@ -83,13 +83,13 @@ async function fetchApi<T>(
 
 // User API interfaces
 export interface User {
-  id: number;
+  id: string;
   email: string;
   name: string | null;
   role: string;
   createdAt: string;
   updatedAt: string;
-  adminId?: number | null;
+  adminId?: string | null;
 }
 
 // Team invitation status
@@ -117,6 +117,32 @@ export interface TeamInvitation {
   expires: string;
 }
 
+// Meeting interfaces
+export interface Meeting {
+  id: string;
+  title: string;
+  teamMemberId: string;
+  teamMember?: string;
+  date: string;
+  duration: number;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  processingStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  googleMeetLink?: string;
+  executiveSummary?: string;
+  wins?: string[];
+  areasForSupport?: string[];
+  actionItems?: string[];
+  transcript?: string;
+  recordingUrl?: string;
+}
+
+// Team member analysis from meetings
+export interface TeamMemberAnalysis {
+  wins: string[];
+  areasForSupport: string[];
+  actionItems: string[];
+}
+
 // User API functions
 export const userApi = {
   // Get all users
@@ -125,7 +151,7 @@ export const userApi = {
   },
 
   // Get a specific user
-  getUser: async (id: number): Promise<User> => {
+  getUser: async (id: string): Promise<User> => {
     return fetchApi<User>(`/api/users/${id}`);
   },
 
@@ -151,7 +177,7 @@ export const userApi = {
   },
 
   // Update a user
-  updateUser: async (id: number, userData: Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt'>>): Promise<User> => {
+  updateUser: async (id: string, userData: Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt'>>): Promise<User> => {
     return fetchApi<User>(`/api/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(userData),
@@ -159,7 +185,7 @@ export const userApi = {
   },
 
   // Delete a user
-  deleteUser: async (id: number): Promise<void> => {
+  deleteUser: async (id: string): Promise<void> => {
     return fetchApi<void>(`/api/users/${id}`, {
       method: 'DELETE',
     });
@@ -178,7 +204,7 @@ export const userApi = {
   },
   
   // Remove a team member (admin only)
-  removeTeamMember: async (userId: number): Promise<void> => {
+  removeTeamMember: async (userId: string): Promise<void> => {
     return fetchApi<void>(`/api/users/team-members/${userId}`, {
       method: 'DELETE',
     });
@@ -213,6 +239,30 @@ export const userApi = {
   }
 };
 
+// Meeting API functions
+export const meetingApi = {
+  // Get all meetings
+  getMeetings: async (): Promise<Meeting[]> => {
+    return fetchApi<Meeting[]>('/api/meetings');
+  },
+  
+  // Get a specific meeting
+  getMeeting: async (id: string): Promise<Meeting> => {
+    return fetchApi<Meeting>(`/api/meetings/${id}`);
+  },
+  
+  // Get meetings by team member
+  getMeetingsByTeamMember: async (teamMemberId: string): Promise<Meeting[]> => {
+    return fetchApi<Meeting[]>(`/api/meetings/team-member/${teamMemberId}`);
+  },
+  
+  // Analyze team member meetings to extract recurring themes
+  analyzeTeamMemberMeetings: async (teamMemberId: string): Promise<TeamMemberAnalysis> => {
+    return fetchApi<TeamMemberAnalysis>(`/api/meetings/analyze/${teamMemberId}`);
+  }
+};
+
 export default {
   userApi,
+  meetingApi,
 }; 

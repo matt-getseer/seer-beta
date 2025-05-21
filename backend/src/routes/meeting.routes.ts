@@ -5,7 +5,9 @@ import {
   createMeeting,
   updateMeeting,
   deleteMeeting,
-  handleMeetingCompleted
+  handleMeetingCompleted,
+  getMeetingsByTeamMember,
+  analyzeTeamMemberMeetings
 } from '../controllers/meeting.controller';
 import { authenticate, requireAuth, isAdmin } from '../middleware/auth.middleware';
 import { verifyMeetingBaasWebhook } from '../middleware/webhookAuth.middleware';
@@ -23,6 +25,12 @@ router.use((req, res, next) => {
 // Read operations - accessible to all authenticated users
 // Get all meetings
 router.get('/', requireAuth, getMeetings);
+
+// Get meetings by team member - this specific route must come before /:id
+router.get('/team-member/:teamMemberId', requireAuth, getMeetingsByTeamMember);
+
+// Analyze team member meetings - this specific route must come before /:id
+router.get('/analyze/:teamMemberId', requireAuth, analyzeTeamMemberMeetings);
 
 // Get a specific meeting
 router.get('/:id', requireAuth, getMeetingById);

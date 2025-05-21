@@ -1,76 +1,183 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-
-interface TeamMember {
-  id: number;
-  name: string;
-  email: string;
-  role: string;
-  department: string;
-  joinDate: string;
-  bio?: string;
-  wins?: string[];
-  areasForSupport?: string[];
-  actionItems?: string[];
-  recentActivity?: {
-    date: string;
-    action: string;
-    details: string;
-  }[];
-}
+import { userApi, meetingApi } from '../../utils/api';
+import { analyzeMeetings } from '../../utils/anthropic';
+import type { TeamMember as TeamMemberType } from '../../interfaces';
 
 const TeamMember = () => {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState('details');
+  const [teamMember, setTeamMember] = useState<TeamMemberType | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
-  // Mock data - in a real app, you would fetch this from an API
-  const teamMember: TeamMember = {
-    id: parseInt(id || '1'),
-    name: 'John Doe',
-    email: 'john.doe@example.com',
-    role: 'Senior Developer',
-    department: 'Engineering',
-    joinDate: '2023-03-15',
-    bio: 'John is a senior developer with over 8 years of experience in web development. He specializes in React, TypeScript, and Node.js. He has been leading the frontend team for our core product.',
-    wins: [
-      'Successfully led the migration from Angular to React',
-      'Improved application performance by 40%',
-      'Mentored 3 junior developers'
-    ],
-    areasForSupport: [
-      'Needs additional resources for the mobile app project',
-      'Would benefit from advanced TypeScript training',
-      'Requires a dedicated QA resource for the next sprint'
-    ],
-    actionItems: [
-      'Complete code reviews for the authentication module by Friday',
-      'Schedule 1:1 meetings with team members',
-      'Document the new component library',
-      'Present the new architecture at the next all-hands'
-    ],
-    recentActivity: [
-      {
-        date: '2025-05-18',
-        action: 'Meeting Attended',
-        details: 'Weekly Team Sync'
-      },
-      {
-        date: '2025-05-15',
-        action: 'Task Completed',
-        details: 'Implement user authentication'
-      },
-      {
-        date: '2025-05-12',
-        action: 'Document Updated',
-        details: 'API Documentation'
-      },
-      {
-        date: '2025-05-10',
-        action: 'Meeting Attended',
-        details: 'Product Planning'
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!id) return;
+      
+      setLoading(true);
+      try {
+        // Fetch the user data - IDs are strings in backend, not numbers
+        const userData = await userApi.getUser(id);
+        
+        // Check if the user has role 'USER'
+        if (userData.role.toUpperCase() !== 'USER') {
+          setError('This page is only available for team members with USER role');
+          setLoading(false);
+          return;
+        }
+        
+        // Initialize team member data with user details
+        let memberData: TeamMemberType = {
+          ...userData,
+          lastSignedIn: userData.updatedAt,
+          department: userData.role,
+          joinDate: userData.createdAt,
+          bio: 'Loading profile data...',
+          wins: [],
+          areasForSupport: [],
+          actionItems: [],
+          recentActivity: []
+        };
+        
+        setTeamMember(memberData);
+        
+        // Fetch meetings data for this team member
+        setAnalyzing(true);
+        try {
+          const meetings = await meetingApi.getMeetingsByTeamMember(id);
+          
+          // If no meetings or if API calls fail, try to use direct Anthropic analysis
+          if (meetings.length === 0) {
+            setTeamMember(prev => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                bio: `${prev.name} has no meeting data available yet.`,
+                wins: ['No meeting data available'],
+                areasForSupport: ['No meeting data available'],
+                actionItems: ['No meeting data available']
+              };
+            });
+            setAnalyzing(false);
+            return;
+          }
+          
+          // Get recent activity from meetings
+          const recentActivity = meetings
+            .slice(0, 5)
+            .map(meeting => ({
+              date: meeting.date,
+              action: 'Meeting',
+              details: meeting.title
+            }));
+          
+          // Update with meetings data
+          setTeamMember(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              recentActivity
+            };
+          });
+          
+          // Try to get analysis from API first
+          try {
+            const analysis = await meetingApi.analyzeTeamMemberMeetings(id);
+            
+            // Update team member with analysis results
+            setTeamMember(prev => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                bio: `${prev.name} is a ${prev.role} who joined the team on ${new Date(prev.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`,
+                wins: analysis.wins,
+                areasForSupport: analysis.areasForSupport,
+                actionItems: analysis.actionItems
+              };
+            });
+          } catch (analysisError) {
+            console.warn('Could not get pre-computed analysis, doing client-side analysis', analysisError);
+            
+            // If API analysis fails, do client-side analysis with Anthropic
+            try {
+              // Use local Anthropic integration as fallback
+              const clientAnalysis = await analyzeMeetings(meetings);
+              
+              // Update team member with client-side analysis
+              setTeamMember(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  bio: `${prev.name} is a ${prev.role} who joined the team on ${new Date(prev.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`,
+                  wins: clientAnalysis.wins,
+                  areasForSupport: clientAnalysis.areasForSupport,
+                  actionItems: clientAnalysis.actionItems
+                };
+              });
+            } catch (clientAnalysisError) {
+              console.error('Client-side analysis failed:', clientAnalysisError);
+              // Just show basic info if all analysis methods fail
+              setTeamMember(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  bio: `${prev.name} is a ${prev.role} who joined the team on ${new Date(prev.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`,
+                  wins: ['Analysis currently unavailable'],
+                  areasForSupport: ['Analysis currently unavailable'],
+                  actionItems: ['Analysis currently unavailable']
+                };
+              });
+            }
+          }
+        } catch (meetingsError) {
+          console.error('Error fetching meetings:', meetingsError);
+          setTeamMember(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              bio: `${prev.name} is a ${prev.role} who joined the team on ${new Date(prev.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`,
+              wins: ['Failed to load meeting data'],
+              areasForSupport: ['Failed to load meeting data'],
+              actionItems: ['Failed to load meeting data']
+            };
+          });
+        } finally {
+          setAnalyzing(false);
+        }
+      } catch (userError) {
+        console.error('Error fetching user data:', userError);
+        setError('Failed to load team member data');
+      } finally {
+        setLoading(false);
       }
-    ]
-  };
+    };
+    
+    fetchData();
+  }, [id]);
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-4 text-gray-700">Loading team member profile...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  // Show error state
+  if (error || !teamMember) {
+    return (
+      <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded">
+        <p className="font-bold">Error</p>
+        <p>{error || 'Team member not found'}</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -80,7 +187,7 @@ const TeamMember = () => {
           {teamMember.role} • {teamMember.department} • {teamMember.email}
         </div>
         <div className="mt-2 text-sm text-gray-500">
-          Team member since {new Date(teamMember.joinDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          Team member since {new Date(teamMember.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
         </div>
       </div>
       
@@ -126,7 +233,10 @@ const TeamMember = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Wins */}
               <div>
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Wins</h2>
+                <h2 className="text-lg font-medium text-gray-900 mb-4">
+                  Wins
+                  {analyzing && <span className="ml-2 text-sm text-gray-500">(Analyzing...)</span>}
+                </h2>
                 <div className="bg-green-50 p-4 rounded-lg">
                   <ul className="space-y-2">
                     {teamMember.wins?.map((win, index) => (
@@ -141,7 +251,10 @@ const TeamMember = () => {
               
               {/* Areas for Support */}
               <div>
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Areas for Support</h2>
+                <h2 className="text-lg font-medium text-gray-900 mb-4">
+                  Areas for Support
+                  {analyzing && <span className="ml-2 text-sm text-gray-500">(Analyzing...)</span>}
+                </h2>
                 <div className="bg-yellow-50 p-4 rounded-lg">
                   <ul className="space-y-2">
                     {teamMember.areasForSupport?.map((area, index) => (
@@ -156,7 +269,10 @@ const TeamMember = () => {
               
               {/* Action Items */}
               <div>
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Action Items</h2>
+                <h2 className="text-lg font-medium text-gray-900 mb-4">
+                  Action Items
+                  {analyzing && <span className="ml-2 text-sm text-gray-500">(Analyzing...)</span>}
+                </h2>
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <ul className="space-y-2">
                     {teamMember.actionItems?.map((item, index) => (
@@ -173,21 +289,27 @@ const TeamMember = () => {
         ) : (
           <div className="p-6">
             <h2 className="text-lg font-medium text-gray-900 mb-4">Recent Activity</h2>
-            <div className="bg-gray-50 rounded-lg divide-y divide-gray-200">
-              {teamMember.recentActivity?.map((activity, index) => (
-                <div key={index} className="p-4">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-medium text-gray-900">{activity.action}</div>
-                      <div className="text-sm text-gray-500">{activity.details}</div>
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {new Date(activity.date).toLocaleDateString()}
+            {teamMember.recentActivity && teamMember.recentActivity.length > 0 ? (
+              <div className="bg-gray-50 rounded-lg divide-y divide-gray-200">
+                {teamMember.recentActivity.map((activity, index) => (
+                  <div key={index} className="p-4">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div className="font-medium text-gray-900">{activity.action}</div>
+                        <div className="text-sm text-gray-500">{activity.details}</div>
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {new Date(activity.date).toLocaleDateString()}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-gray-50 p-4 rounded-lg text-gray-500 text-center">
+                No recent activity found
+              </div>
+            )}
           </div>
         )}
       </div>

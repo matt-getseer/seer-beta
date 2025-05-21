@@ -4,6 +4,7 @@ import axios from 'axios';
 import { ArrowLeft, VideoCamera } from 'phosphor-react';
 import { useAuth } from '@clerk/clerk-react';
 import VideoPlayer from '../VideoPlayer';
+import type { TeamMember } from '../../interfaces';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
@@ -53,7 +54,7 @@ const MeetingOverview = () => {
         });
         
         const teamMembersMap = new Map();
-        teamResponse.data.forEach((member: any) => {
+        teamResponse.data.forEach((member: TeamMember) => {
           teamMembersMap.set(member.id, member.name);
         });
         

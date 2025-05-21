@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
 import NewMeetingModal from '../NewMeetingModal';
+import type { TeamMember } from '../../interfaces';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
@@ -70,14 +71,14 @@ const Meetings = () => {
       });
       
       // Get team members to display names
-      const teamResponse = await axios.get(`${API_URL}/api/users/team`, {
+      const teamResponse = await axios.get(`${API_URL}/api/users/team-members`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
       
       const teamMembersMap = new Map();
-      teamResponse.data.forEach((member: any) => {
+      teamResponse.data.forEach((member: TeamMember) => {
         teamMembersMap.set(member.id, member.name);
       });
       

@@ -1,26 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { userApi } from '../../utils/api';
-import type { User, InviteStatus, InvitationResponse, TeamInvitation } from '../../utils/api';
 import { formatDistanceToNow } from 'date-fns';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { TrashSimple, Plus, MagnifyingGlass, CaretDown, Clock } from 'phosphor-react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@clerk/clerk-react';
+import type { 
+  User,
+  TeamMember, 
+  TeamInvitation, 
+  InviteErrorResponse,
+  InviteStatus 
+} from '../../interfaces';
 
-interface TeamMember extends User {
-  lastSignedIn?: string;
-}
-
-// Define an extended error type for the invite API
-interface InviteErrorResponse {
-  error: string;
-  details?: string;
-  status?: number;
-  canInvite?: boolean;
-  currentCount?: number;
-  remainingInvites?: number;
-}
+// Import type definitions from API for compatibility
+import type { TeamInvitation as ApiTeamInvitation } from '../../utils/api';
 
 const Team = () => {
   const { user, isSignedIn } = useUser();
@@ -139,7 +135,8 @@ const Team = () => {
     
     try {
       setIsDeleting(true);
-      await userApi.removeTeamMember(memberToDelete.id);
+      // Ensure id is a string for the API call
+      await userApi.removeTeamMember(memberToDelete.id.toString());
       
       // Update the UI
       setTeamMembers(prev => prev.filter(member => member.id !== memberToDelete.id));
@@ -165,14 +162,14 @@ const Team = () => {
     }
   };
   
-  // Handle invitation
+  // Handle sending invitation
   const handleSendInvite = async () => {
-    if (!inviteEmail.trim()) return;
+    if (!inviteEmail) return;
+    
+    setInviteError('');
+    setIsInviting(true);
     
     try {
-      setIsInviting(true);
-      setInviteError(null);
-      
       // Check if we can invite more members
       if (inviteStatus && !inviteStatus.canInvite) {
         setInviteError('You have reached the maximum number of team members.');
@@ -193,10 +190,12 @@ const Team = () => {
       
       // Show success message (could use a toast notification here)
       console.log(`Invitation sent to: ${inviteEmail}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to send invitation:', err);
       // Extract error message from API response if available
-      const errorMessage = err.error || err.message || 'Failed to send invitation. Please try again.';
+      const errorMessage = err instanceof Error 
+        ? err.message 
+        : 'Failed to send invitation. Please try again.';
       setInviteError(errorMessage);
       
       // If the error response contains invite status information, update it
@@ -458,7 +457,7 @@ const Team = () => {
                       {formatDate(invitation.createdAt)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
-                      {formatDate(invitation.expires)}
+                      {formatDate(invitation.expires || invitation.expiresAt || invitation.createdAt)}
                     </td>
                     {isAdmin && (
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">

@@ -179,44 +179,6 @@ router.get('/team-members', isAdmin, async (req: Request, res: Response) => {
   }
 });
 
-// Remove a team member (admin only)
-router.delete('/team-members/:id', isAdmin, async (req: Request, res: Response) => {
-  try {
-    const adminId = req.user?.id;
-    const memberId = req.params.id;
-    
-    if (!memberId) {
-      return res.status(400).json({ error: 'Invalid member ID' });
-    }
-    
-    // Check if the user exists and is a team member of this admin
-    const member = await prisma.user.findFirst({
-      where: {
-        id: memberId,
-        adminId
-      }
-    });
-    
-    if (!member) {
-      return res.status(404).json({ error: 'Team member not found or not part of your team' });
-    }
-    
-    // Update the user to remove them from the team (set adminId to null)
-    await prisma.user.update({
-      where: { id: memberId },
-      data: { adminId: null }
-    });
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error removing team member:', error);
-    res.status(500).json({ 
-      error: 'Error removing team member',
-      details: error instanceof Error ? error.message : String(error)
-    });
-  }
-});
-
 // Check if admin can invite more team members
 router.get('/can-invite', isAdmin, async (req: Request, res: Response) => {
   try {
@@ -261,6 +223,71 @@ router.get('/invitations', isAdmin, async (req: Request, res: Response) => {
     console.error('Error fetching invitations:', error);
     res.status(500).json({ 
       error: 'Error fetching invitations',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Get user by ID - accessible to all authenticated users
+router.get('/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+    
+    const user = await prisma.user.findUnique({
+      where: { id }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ 
+      error: 'Error fetching user',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Remove a team member (admin only)
+router.delete('/team-members/:id', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const memberId = req.params.id;
+    
+    if (!memberId) {
+      return res.status(400).json({ error: 'Invalid member ID' });
+    }
+    
+    // Check if the user exists and is a team member of this admin
+    const member = await prisma.user.findFirst({
+      where: {
+        id: memberId,
+        adminId
+      }
+    });
+    
+    if (!member) {
+      return res.status(404).json({ error: 'Team member not found or not part of your team' });
+    }
+    
+    // Update the user to remove them from the team (set adminId to null)
+    await prisma.user.update({
+      where: { id: memberId },
+      data: { adminId: null }
+    });
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing team member:', error);
+    res.status(500).json({ 
+      error: 'Error removing team member',
       details: error instanceof Error ? error.message : String(error)
     });
   }

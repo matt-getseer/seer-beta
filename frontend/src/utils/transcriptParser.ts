@@ -10,6 +10,9 @@ interface SpeakerData {
   percentage: number;
 }
 
+// Export interfaces for use in other components
+export type { SpeakerSegment, SpeakerData };
+
 /**
  * Parse a transcript text with the format "Speaker: text" into speaker segments
  * This is a simplified implementation and would need to be adapted to work with
