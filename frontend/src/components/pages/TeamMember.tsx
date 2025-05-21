@@ -496,10 +496,10 @@ const TeamMember = () => {
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-medium text-gray-900">Key areas</h2>
               <div className="flex space-x-2">
-                {/* Temporarily show the button regardless of keyAreasChanged state */}
+                {/* Only enable the button when key areas have changed */}
                 <button 
                   onClick={refreshAnalysis}
-                  disabled={refreshAnalysisLoading}
+                  disabled={refreshAnalysisLoading || !keyAreasChanged}
                   className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm disabled:bg-green-300 flex items-center"
                 >
                   {refreshAnalysisLoading ? (
