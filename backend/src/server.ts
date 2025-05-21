@@ -2,7 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import session from 'express-session';
-import { PrismaClient } from '@prisma/client';
+import { prisma, checkDatabaseConnection } from './utils/prisma';
+import { verifyDatabaseConnection } from './utils/db-setup';
 import webhookRoutes from './routes/webhook.routes';
 import userRoutes from './routes/user.routes';
 import meetingRoutes from './routes/meeting.routes';
@@ -11,9 +12,6 @@ import { authenticate } from './middleware/auth.middleware';
 
 // Load environment variables
 dotenv.config();
-
-// Initialize Prisma client
-const prisma = new PrismaClient();
 
 // Create Express app
 const app = express();
@@ -56,9 +54,21 @@ app.get('/auth/google/callback', (req, res) => {
   res.redirect(`/api/auth/google/callback${queryString}`);
 });
 
-// Apply auth middleware globally EXCEPT for webhook routes
+// Health check endpoint
+app.get('/api/health', async (req, res) => {
+  const dbStatus = await checkDatabaseConnection();
+  res.json({
+    status: 'ok',
+    timestamp: new Date(),
+    database: dbStatus ? 'connected' : 'disconnected'
+  });
+});
+
+// Apply auth middleware globally EXCEPT for webhook routes and health checks
 app.use((req, res, next) => {
-  if (!req.path.startsWith('/api/webhooks') && !req.path.startsWith('/api/meetings/webhook')) {
+  if (!req.path.startsWith('/api/webhooks') && 
+      !req.path.startsWith('/api/meetings/webhook') &&
+      !req.path.startsWith('/api/health')) {
     return authenticate(req, res, next);
   }
   next();
@@ -75,24 +85,27 @@ app.get('/', (req, res) => {
   res.json({ message: 'Welcome to the Seer API' });
 });
 
-// User routes
-app.get('/api/users', async (req, res) => {
-  try {
-    const users = await prisma.user.findMany();
-    res.json(users);
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ 
-      error: 'Error fetching users',
-      details: error instanceof Error ? error.message : String(error)
-    });
+// Start the server with database connection verification
+async function startServer() {
+  // First verify the database connection
+  const dbConnected = await verifyDatabaseConnection();
+  
+  if (!dbConnected) {
+    console.error('⚠️ WARNING: Database connection failed. Server will start but may not function properly.');
+    console.error('Please check your DATABASE_URL configuration and ensure PostgreSQL is running.');
+    console.error('Run "npx ts-node src/utils/check-db-health.ts" for detailed diagnostics.');
   }
-});
+
+  // Start the server even if DB fails - this allows the /api/health endpoint to work
+  // for monitoring and troubleshooting
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`Health check available at http://localhost:${PORT}/api/health`);
+  });
+}
 
 // Start the server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+startServer();
 
 // Handle shutdown
 process.on('SIGINT', async () => {

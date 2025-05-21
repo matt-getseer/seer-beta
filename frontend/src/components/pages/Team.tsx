@@ -50,36 +50,83 @@ const Team = () => {
       try {
         setLoading(true);
         
-        // First check if current user is admin
-        if (isSignedIn) {
-          // In a real implementation, we'd use the Clerk user ID to fetch user details
-          // including their role from our backend
-          const users = await userApi.getUsers();
-          const currentUser = users.find(u => u.email === user?.primaryEmailAddress?.emailAddress);
-          
-          if (currentUser?.role === 'admin') {
-            setIsAdmin(true);
+        // Make sure Clerk has initialized
+        if (!isSignedIn || !user) {
+          setError('Please sign in to access team features.');
+          setLoading(false);
+          return;
+        }
+        
+        // First check if current user is signed in
+        if (isSignedIn && user) {
+          // Ensure the user is registered with our backend
+          try {
+            // Register/get current user
+            console.log('Attempting to register user with Clerk ID:', user.id);
+            console.log('User email:', user.primaryEmailAddress?.emailAddress);
+            console.log('User role should be admin:', isAdmin);
             
-            // Fetch team members, invite status, and pending invitations
-            const [members, status, invitations] = await Promise.all([
-              userApi.getTeamMembers(),
-              userApi.getInviteStatus(),
-              userApi.getPendingInvitations()
-            ]);
+            const currentUser = await userApi.registerUser({
+              email: user.primaryEmailAddress?.emailAddress || '',
+              name: user.fullName
+            });
             
-            // Transform the data to match our component's needs
-            const formattedMembers = members.map(member => ({
-              ...member,
-              // In a real app, you might have a lastSignedIn field
-              // For now, we'll just use the updatedAt as a placeholder
-              lastSignedIn: member.updatedAt,
-            }));
+            console.log('Registration response from backend:', currentUser);
+            console.log('Current user role:', currentUser?.role);
+            console.log('Is current user admin in DB:', currentUser?.role === 'admin');
             
-            setTeamMembers(formattedMembers);
-            setInviteStatus(status);
-            setPendingInvitations(invitations);
-          } else {
-            // Regular users just see all users
+            if (currentUser?.role === 'admin') {
+              setIsAdmin(true);
+              
+              try {
+                // Fetch team members, invite status, and pending invitations
+                const [members, status, invitations] = await Promise.all([
+                  userApi.getTeamMembers(),
+                  userApi.getInviteStatus(),
+                  userApi.getPendingInvitations()
+                ]);
+                
+                // Transform the data to match our component's needs
+                const formattedMembers = members.map(member => ({
+                  ...member,
+                  // In a real app, you might have a lastSignedIn field
+                  // For now, we'll just use the updatedAt as a placeholder
+                  lastSignedIn: member.updatedAt,
+                }));
+                
+                setTeamMembers(formattedMembers);
+                setInviteStatus(status);
+                setPendingInvitations(invitations);
+              } catch (adminError) {
+                console.error('Failed to fetch admin-specific data:', adminError);
+                
+                // Fetch all users as fallback
+                const users = await userApi.getUsers();
+                const formattedUsers = users.map(user => ({
+                  ...user,
+                  lastSignedIn: user.updatedAt,
+                }));
+                
+                setTeamMembers(formattedUsers);
+                
+                // Set a less alarming error message
+                setError('Some team management features may be unavailable.');
+              }
+            } else {
+              // Regular users just see all users
+              const users = await userApi.getUsers();
+              
+              const formattedUsers = users.map(user => ({
+                ...user,
+                lastSignedIn: user.updatedAt,
+              }));
+              
+              setTeamMembers(formattedUsers);
+            }
+          } catch (registrationError) {
+            console.error('Failed to register user with backend:', registrationError);
+            
+            // Fallback to fetch all users even if registration fails
             const users = await userApi.getUsers();
             
             const formattedUsers = users.map(user => ({
@@ -88,6 +135,7 @@ const Team = () => {
             }));
             
             setTeamMembers(formattedUsers);
+            setError('User authentication issue. Some features may be limited.');
           }
         } else {
           // Fallback to fetch all users if not signed in
@@ -101,7 +149,6 @@ const Team = () => {
           setTeamMembers(formattedUsers);
         }
         
-        setError(null);
       } catch (err) {
         console.error('Failed to fetch team data:', err);
         setError('Failed to load team data. Please try again later.');

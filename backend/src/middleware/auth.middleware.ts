@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../utils/prisma';
 import jwt from 'jsonwebtoken';
 
-const prisma = new PrismaClient();
+// Using singleton Prisma client from utils/prisma
 
 // Extend the Express Request type to include user property
 declare global {
@@ -94,27 +94,36 @@ export const isAdmin = async (req: Request, res: Response, next: NextFunction) =
   try {
     // First make sure the user is authenticated
     if (!req.auth) {
+      console.log('isAdmin middleware: No auth info found');
       return res.status(401).json({ error: 'Authentication required' });
     }
     
+    console.log('isAdmin middleware: Checking admin status for user with clerkId:', req.auth.clerkId);
+    
     // If we don't have the user from the database yet, get them
     if (!req.user) {
+      console.log('isAdmin middleware: User not loaded yet, fetching from DB');
       const user = await prisma.user.findUnique({
         where: { clerkId: req.auth.clerkId }
       });
       
       if (!user) {
+        console.log('isAdmin middleware: User not found in database for clerkId:', req.auth.clerkId);
         return res.status(404).json({ error: 'User not found' });
       }
       
       req.user = user;
     }
     
+    console.log('isAdmin middleware: User role:', req.user.role);
+    
     // Check if the user is an admin
     if (req.user.role !== 'admin') {
+      console.log('isAdmin middleware: User is not an admin');
       return res.status(403).json({ error: 'Admin access required' });
     }
     
+    console.log('isAdmin middleware: Access granted, user is admin');
     next();
   } catch (error) {
     console.error('isAdmin middleware error:', error);

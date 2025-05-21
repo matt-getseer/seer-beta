@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../utils/prisma';
 import crypto from 'crypto';
 import { Webhook } from 'svix';
 
-const prisma = new PrismaClient();
+// Using singleton Prisma client from utils/prisma
 
 // Verify the webhook signature from Clerk
 const verifyClerkWebhookSignature = (req: Request & { rawBody?: string }): boolean => {

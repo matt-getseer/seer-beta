@@ -71,7 +71,7 @@ const Meetings = () => {
       });
       
       // Get team members to display names
-      const teamResponse = await axios.get(`${API_URL}/api/users/team-members`, {
+      const teamResponse = await axios.get(`${API_URL}/api/users/team`, {
         headers: {
           Authorization: `Bearer ${token}`
         }

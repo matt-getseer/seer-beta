@@ -1,9 +1,10 @@
 import axios from 'axios';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../utils/prisma';
 import { google } from 'googleapis';
-import { NLPService, MeetingType } from './nlp.service';
+import { NLPService } from './nlp.service';
+import { MeetingType } from './meeting-processor.service';
 
-const prisma = new PrismaClient();
+// Using singleton Prisma client from utils/prisma
 const MEETINGBAAS_API_URL = process.env.MEETINGBAAS_API_URL || 'https://api.meetingbaas.com';
 const MEETINGBAAS_API_KEY = process.env.MEETINGBAAS_API_KEY;
 

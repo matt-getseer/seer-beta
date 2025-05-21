@@ -1,14 +1,7 @@
 import express from 'express';
-import {
-  getMeetings,
-  getMeetingById,
-  createMeeting,
-  updateMeeting,
-  deleteMeeting,
-  handleMeetingCompleted,
-  getMeetingsByTeamMember,
-  analyzeTeamMemberMeetings
-} from '../controllers/meeting.controller';
+import { MeetingController } from '../controllers/meeting.controller';
+import { MeetingWebhookController } from '../controllers/meeting-webhook.controller';
+import { MeetingAnalysisController } from '../controllers/meeting-analysis.controller';
 import { authenticate, requireAuth, isAdmin } from '../middleware/auth.middleware';
 import { verifyMeetingBaasWebhook } from '../middleware/webhookAuth.middleware';
 
@@ -24,29 +17,29 @@ router.use((req, res, next) => {
 
 // Read operations - accessible to all authenticated users
 // Get all meetings
-router.get('/', requireAuth, getMeetings);
+router.get('/', requireAuth, MeetingController.getMeetings);
 
 // Get meetings by team member - this specific route must come before /:id
-router.get('/team-member/:teamMemberId', requireAuth, getMeetingsByTeamMember);
+router.get('/team-member/:teamMemberId', requireAuth, MeetingAnalysisController.getMeetingsByTeamMember);
 
 // Analyze team member meetings - this specific route must come before /:id
-router.get('/analyze/:teamMemberId', requireAuth, analyzeTeamMemberMeetings);
+router.get('/analyze/:teamMemberId', requireAuth, MeetingAnalysisController.analyzeTeamMemberMeetings);
 
 // Get a specific meeting
-router.get('/:id', requireAuth, getMeetingById);
+router.get('/:id', requireAuth, MeetingController.getMeetingById);
 
 // Write operations - accessible only to admins
 // Create a meeting - only admin can create meetings
-router.post('/', isAdmin, createMeeting);
+router.post('/', isAdmin, MeetingController.createMeeting);
 
 // Update a meeting - only admin can update meetings
-router.put('/:id', isAdmin, updateMeeting);
+router.put('/:id', isAdmin, MeetingController.updateMeeting);
 
 // Delete a meeting - only admin can delete meetings
-router.delete('/:id', isAdmin, deleteMeeting);
+router.delete('/:id', isAdmin, MeetingController.deleteMeeting);
 
 // Webhook endpoint for meeting completion
 // Apply webhook verification middleware
-router.post('/webhook', verifyMeetingBaasWebhook, handleMeetingCompleted);
+router.post('/webhook', verifyMeetingBaasWebhook, MeetingWebhookController.handleMeetingCompleted);
 
 export default router; 
