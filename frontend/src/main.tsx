@@ -48,47 +48,52 @@ const clerkConfig = {
   afterSignUpUrl: '/'
 };
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <BrowserRouter>
-      <ClerkProvider {...clerkConfig}>
-        <Routes>
-          <Route path="/" element={
-            <MainLayout>
-              <Overview />
-            </MainLayout>
-          } />
-          <Route path="/team" element={
-            <MainLayout>
-              <Team />
-            </MainLayout>
-          } />
-          <Route path="/team/:id" element={
-            <MainLayout>
-              <TeamMember />
-            </MainLayout>
-          } />
-          <Route path="/meetings" element={
-            <MainLayout>
-              <Meetings />
-            </MainLayout>
-          } />
-          <Route path="/meetings/:id" element={
-            <MainLayout>
-              <MeetingOverview />
-            </MainLayout>
-          } />
-          <Route path="/settings" element={
-            <MainLayout>
-              <Settings />
-            </MainLayout>
-          } />
-          <Route path="/invite" element={<InviteRedirect />} />
-          <Route path="/sign-in" element={<App />} />
-          <Route path="/sign-up" element={<App />} />
-          <Route path="/api/auth" element={<AuthCallback />} />
-        </Routes>
-      </ClerkProvider>
-    </BrowserRouter>
-  </StrictMode>,
-)
+// Export the root component for Fast Refresh to work properly
+export default function Root() {
+  return (
+    <StrictMode>
+      <BrowserRouter>
+        <ClerkProvider {...clerkConfig}>
+          <Routes>
+            <Route path="/" element={
+              <MainLayout>
+                <Overview />
+              </MainLayout>
+            } />
+            <Route path="/team" element={
+              <MainLayout>
+                <Team />
+              </MainLayout>
+            } />
+            <Route path="/team/:id" element={
+              <MainLayout>
+                <TeamMember />
+              </MainLayout>
+            } />
+            <Route path="/meetings" element={
+              <MainLayout>
+                <Meetings />
+              </MainLayout>
+            } />
+            <Route path="/meetings/:id" element={
+              <MainLayout>
+                <MeetingOverview />
+              </MainLayout>
+            } />
+            <Route path="/settings" element={
+              <MainLayout>
+                <Settings />
+              </MainLayout>
+            } />
+            <Route path="/invite" element={<InviteRedirect />} />
+            <Route path="/sign-in" element={<App />} />
+            <Route path="/sign-up" element={<App />} />
+            <Route path="/api/auth" element={<AuthCallback />} />
+          </Routes>
+        </ClerkProvider>
+      </BrowserRouter>
+    </StrictMode>
+  );
+}
+
+createRoot(document.getElementById('root')!).render(<Root />);

@@ -11,12 +11,12 @@ interface Team {
   name: string;
 }
 
-interface User {
-  id: string;
-  email: string;
-  name: string | null;
-  role: string;
-}
+// interface User {
+//   id: string;
+//   email: string;
+//   name: string | null;
+//   role: string;
+// }
 
 interface NewMeetingModalProps {
   isOpen: boolean;
@@ -33,7 +33,6 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<Team[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const { getToken } = useAuth();
 
   // Fetch current user and team members
@@ -48,7 +47,6 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
             Authorization: `Bearer ${token}`
           }
         });
-        setCurrentUser(userResponse.data);
         
         // Fetch team members
         const teamResponse = await axios.get(`${API_URL}/api/users/team`, {
@@ -84,7 +82,7 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
       const dateTime = new Date(`${date}T${time}`);
       
       const token = await getToken();
-      const response = await axios.post(
+      await axios.post(
         `${API_URL}/api/meetings`,
         {
           title,

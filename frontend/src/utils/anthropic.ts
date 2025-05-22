@@ -60,7 +60,15 @@ async function callAnthropic(messages: AnthropicMessage[], customKey?: string): 
  * Analyze meeting data to extract recurring themes
  */
 export async function analyzeMeetings(
-  meetings: any[], 
+  meetings: { 
+    title: string; 
+    date: string; 
+    executiveSummary?: string;
+    transcript?: string;
+    wins?: string[];
+    areasForSupport?: string[];
+    actionItems?: string[];
+  }[], 
   customKey?: string
 ): Promise<MeetingAnalysisResult> {
   try {

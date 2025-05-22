@@ -1,10 +1,23 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, Fragment, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { userApi, meetingApi, keyAreaApi } from '../../utils/api';
 import { analyzeMeetings } from '../../utils/anthropic';
-import type { TeamMember as TeamMemberType, KeyArea, Activity, AnalysisHistory } from '../../interfaces';
+import type { TeamMember as TeamMemberType, KeyArea, Activity, AnalysisHistory, Meeting } from '../../interfaces';
 import { Dialog, Transition } from '@headlessui/react';
 import { Link } from 'react-router-dom';
+
+// Function to safely format dates and ensure they're not in the future
+const getValidDate = (dateString: string): Date => {
+  const parsedDate = new Date(dateString);
+  const now = new Date();
+  
+  // Check if date is valid and not in the future
+  if (isNaN(parsedDate.getTime()) || parsedDate > now) {
+    return now;
+  }
+  
+  return parsedDate;
+};
 
 const TeamMember = () => {
   const { id } = useParams<{ id: string }>();
@@ -28,12 +41,28 @@ const TeamMember = () => {
   const [keyAreaToDelete, setKeyAreaToDelete] = useState<string | null>(null);
   const [keyAreasChanged, setKeyAreasChanged] = useState(false);
   const [refreshAnalysisLoading, setRefreshAnalysisLoading] = useState(false);
-  const [meetings, setMeetings] = useState<any[]>([]);
-  const [meetingsLoading, setMeetingsLoading] = useState(false);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [sortField, setSortField] = useState<string>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistory[]>([]);
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisHistory | null>(null);
+  
+  // Function to transform analysis history to activity entries
+  const transformHistoryToActivities = useCallback((historyData: AnalysisHistory[]): Activity[] => {
+    return historyData
+      .filter(item => !!item.analyzedAt) // Filter out any items without dates
+      .map(item => {
+        // Get a valid date using our helper
+        const analysisDate = getValidDate(item.analyzedAt);
+        
+        return {
+          id: item.id,
+          date: analysisDate.toISOString(),
+          action: 'Analysis',
+          details: `Performance analysis from ${analysisDate.toLocaleDateString()}`,
+          type: 'analysis'
+        };
+      });
+  }, []);
   
   useEffect(() => {
     const fetchData = async () => {
@@ -49,7 +78,7 @@ const TeamMember = () => {
         const userData = await userApi.getUser(id);
         
         // Initialize team member data with user details
-        let memberData: TeamMemberType = {
+        const memberData: TeamMemberType = {
           ...userData,
           lastSignedIn: userData.updatedAt,
           department: userData.role,
@@ -72,7 +101,7 @@ const TeamMember = () => {
           const meetings = await meetingApi.getMeetingsByTeamMember(id);
           
           // Store all meetings for the meetings tab
-          setMeetings(meetings);
+          setMeetings(meetings as Meeting[]);
           
           // If no meetings or if API calls fail, try to use direct Anthropic analysis
           if (meetings.length === 0) {
@@ -123,7 +152,6 @@ const TeamMember = () => {
             // Fetch analysis history
             try {
               const historyData = await meetingApi.getAnalysisHistory(id);
-              setAnalysisHistory(historyData);
               
               // Add analysis history entries to recent activity
               if (historyData && historyData.length > 0) {
@@ -221,7 +249,7 @@ const TeamMember = () => {
     };
     
     fetchData();
-  }, [id]);
+  }, [id, transformHistoryToActivities]);
   
   // Function to fetch key areas
   const fetchKeyAreas = async (userId: string) => {
@@ -234,37 +262,6 @@ const TeamMember = () => {
     } finally {
       setKeyAreaLoading(false);
     }
-  };
-  
-  // Function to safely format dates and ensure they're not in the future
-  const getValidDate = (dateString: string): Date => {
-    const parsedDate = new Date(dateString);
-    const now = new Date();
-    
-    // Check if date is valid and not in the future
-    if (isNaN(parsedDate.getTime()) || parsedDate > now) {
-      return now;
-    }
-    
-    return parsedDate;
-  };
-  
-  // Add a utility function to transform history data into activity entries
-  const transformHistoryToActivities = (historyData: AnalysisHistory[]): Activity[] => {
-    return historyData
-      .filter(item => !!item.analyzedAt) // Filter out any items without dates
-      .map(item => {
-        // Get a valid date using our helper
-        const analysisDate = getValidDate(item.analyzedAt);
-        
-        return {
-          id: item.id,
-          date: analysisDate.toISOString(),
-          action: 'Analysis',
-          details: `Performance analysis from ${analysisDate.toLocaleDateString()}`,
-          type: 'analysis'
-        };
-      });
   };
   
   // Function to load a historical analysis
@@ -422,7 +419,6 @@ const TeamMember = () => {
       // Fetch updated analysis history
       try {
         const historyData = await meetingApi.getAnalysisHistory(id);
-        setAnalysisHistory(historyData);
         
         // Add analysis history entries to recent activity
         if (historyData && historyData.length > 0) {
@@ -732,12 +728,7 @@ const TeamMember = () => {
           </div>
         ) : activeTab === 'meetings' ? (
           <div className="p-0">
-            {meetingsLoading ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
-                <p className="mt-4 text-gray-700">Loading meetings...</p>
-              </div>
-            ) : meetings.length > 0 ? (
+            {meetings.length > 0 ? (
               <div className="bg-white shadow rounded-lg overflow-hidden">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -775,13 +766,27 @@ const TeamMember = () => {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {meetings
                       .sort((a, b) => {
-                        let aValue = a[sortField];
-                        let bValue = b[sortField];
+                        // Type-safe property access
+                        let aValue: string | number | Date;
+                        let bValue: string | number | Date;
                         
                         // Special case for date
                         if (sortField === 'date') {
                           aValue = new Date(a.date);
                           bValue = new Date(b.date);
+                        } else if (sortField === 'title') {
+                          aValue = a.title;
+                          bValue = b.title;
+                        } else if (sortField === 'duration') {
+                          aValue = typeof a.duration === 'string' ? parseInt(a.duration) : a.duration;
+                          bValue = typeof b.duration === 'string' ? parseInt(b.duration) : b.duration;
+                        } else if (sortField === 'status') {
+                          aValue = a.status;
+                          bValue = b.status;
+                        } else {
+                          // Default to empty strings for unknown fields
+                          aValue = '';
+                          bValue = '';
                         }
                         
                         if (aValue < bValue) {

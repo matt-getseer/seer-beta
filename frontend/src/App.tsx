@@ -1,5 +1,5 @@
 import { SignIn, SignUp } from '@clerk/clerk-react'
-import { useLocation, Link } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import './App.css'
 
 function App() {

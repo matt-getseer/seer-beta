@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MagnifyingGlass, CaretDown, Plus, ArrowUp, ArrowDown } from 'phosphor-react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
@@ -22,13 +22,13 @@ interface Meeting {
   googleMeetLink?: string;
 }
 
-// User interface
-interface User {
-  id: string;
-  email: string;
-  name: string | null;
-  role: string;
-}
+// User interface - not used in this file
+// interface User {
+//   id: string;
+//   email: string;
+//   name: string | null;
+//   role: string;
+// }
 
 const Meetings = () => {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -37,7 +37,6 @@ const Meetings = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [sortField, setSortField] = useState<keyof Meeting>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -46,7 +45,7 @@ const Meetings = () => {
   const { getToken } = useAuth();
   
   // Fetch current user data
-  const fetchCurrentUser = async () => {
+  const fetchCurrentUser = useCallback(async () => {
     try {
       const token = await getToken();
       
@@ -56,15 +55,14 @@ const Meetings = () => {
         }
       });
       
-      setCurrentUser(response.data);
       setIsAdmin(response.data.role === 'admin');
     } catch (error) {
       console.error('Error fetching current user:', error);
     }
-  };
+  }, [getToken]);
   
   // Fetch meetings from API
-  const fetchMeetings = async () => {
+  const fetchMeetings = useCallback(async () => {
     setLoading(true);
     try {
       const token = await getToken();
@@ -124,12 +122,12 @@ const Meetings = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getToken]);
   
   useEffect(() => {
     fetchCurrentUser();
     fetchMeetings();
-  }, []);
+  }, [fetchCurrentUser, fetchMeetings]);
   
   // Handle sorting
   const handleSort = (field: keyof Meeting) => {
@@ -165,14 +163,18 @@ const Meetings = () => {
 
   // Sort the filtered meetings
   const sortedMeetings = [...filteredMeetings].sort((a, b) => {
-    let aValue: any = a[sortField];
-    let bValue: any = b[sortField];
+    let aValue: string | number | Date | undefined = a[sortField];
+    let bValue: string | number | Date | undefined = b[sortField];
     
     // Special cases for sorting
     if (sortField === 'date' && a.rawDate && b.rawDate) {
       aValue = a.rawDate;
       bValue = b.rawDate;
     }
+    
+    // Handle undefined values
+    if (aValue === undefined) return sortDirection === 'asc' ? -1 : 1;
+    if (bValue === undefined) return sortDirection === 'asc' ? 1 : -1;
     
     if (aValue < bValue) {
       return sortDirection === 'asc' ? -1 : 1;

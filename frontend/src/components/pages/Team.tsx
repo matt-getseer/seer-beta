@@ -6,17 +6,12 @@ import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { TrashSimple, Plus, MagnifyingGlass, CaretDown, Clock } from 'phosphor-react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '@clerk/clerk-react';
 import type { 
-  User,
   TeamMember, 
   TeamInvitation, 
   InviteErrorResponse,
   InviteStatus 
 } from '../../interfaces';
-
-// Import type definitions from API for compatibility
-import type { TeamInvitation as ApiTeamInvitation } from '../../utils/api';
 
 const Team = () => {
   const { user, isSignedIn } = useUser();
@@ -164,14 +159,14 @@ const Team = () => {
     };
 
     fetchData();
-  }, [isSignedIn, user]);
+  }, [isSignedIn, user, isAdmin]);
 
   // Helper function to format dates
   const formatDate = (dateString: string) => {
     try {
       const date = new Date(dateString);
       return formatDistanceToNow(date, { addSuffix: true });
-    } catch (err) {
+    } catch {
       return dateString;
     }
   };

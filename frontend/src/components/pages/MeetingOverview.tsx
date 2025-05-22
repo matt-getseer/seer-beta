@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, VideoCamera, Check, X } from 'phosphor-react';
+import { ArrowLeft, VideoCamera, Check } from 'phosphor-react';
 import { useAuth } from '@clerk/clerk-react';
 import VideoPlayer from '../VideoPlayer';
 import ActionItemSidebar from '../ActionItemSidebar';
@@ -73,7 +73,7 @@ const MeetingOverview = () => {
         
         if (response.data.actionItemsData && response.data.actionItemsData.length > 0) {
           // We have the new structured format
-          processedActionItems = response.data.actionItemsData.map((item: any) => ({
+          processedActionItems = response.data.actionItemsData.map((item: Omit<ActionItem, 'assigneeName'>) => ({
             id: item.id,
             text: item.text,
             status: item.status as 'incomplete' | 'complete',

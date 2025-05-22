@@ -1,20 +1,15 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
-import { useLocation } from 'react-router-dom';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
 
 const Settings = () => {
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0); // Add refresh trigger counter
   const { getToken } = useAuth();
-  const location = useLocation();
   
   // Disconnect confirmation dialog
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
@@ -144,15 +139,6 @@ const Settings = () => {
     }
   };
   
-  const handleAIConnection = async () => {
-    if (aiConnected) {
-      // Show disconnect confirmation dialog
-      setShowAIDisconnectDialog(true);
-    } else {
-      // Open the AI settings form
-      setUseCustomAI(true);
-    }
-  };
   
   const confirmDisconnectAI = async () => {
     try {

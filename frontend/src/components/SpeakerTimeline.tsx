@@ -15,14 +15,12 @@ interface SpeakerData {
 
 interface SpeakerTimelineProps {
   speakers: SpeakerData[];
-  currentTime: number;
   totalDuration: number; // in seconds
   onSeek: (time: number) => void;
 }
 
 const SpeakerTimeline: React.FC<SpeakerTimelineProps> = ({ 
   speakers, 
-  currentTime, 
   totalDuration,
   onSeek
 }) => {
