@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { EncryptionService } from './encryption.service';
 import dotenv from 'dotenv';
 import { ProcessOptions } from './meeting-type-processor.service';
 
@@ -16,13 +15,11 @@ export class OpenAIService {
   static async processTranscript(
     transcript: string, 
     options: ProcessOptions = {},
-    encryptedApiKey?: string | null
+    apiKey?: string | null
   ) {
-    if (!encryptedApiKey) {
+    if (!apiKey) {
       throw new Error('OpenAI API key is not provided');
     }
-    
-    const apiKey = EncryptionService.decrypt(encryptedApiKey);
     
     try {
       // Create a system prompt for OpenAI

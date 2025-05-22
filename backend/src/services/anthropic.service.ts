@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { EncryptionService } from './encryption.service';
 import dotenv from 'dotenv';
 import { ProcessOptions } from './meeting-type-processor.service';
 
@@ -16,12 +15,10 @@ export class AnthropicService {
   static async processTranscript(
     transcript: string, 
     options: ProcessOptions = {},
-    encryptedApiKey?: string | null
+    apiKey?: string | null
   ) {
     // Get API key - try to use custom API key if provided, otherwise use system key
-    const ANTHROPIC_API_KEY = encryptedApiKey 
-      ? EncryptionService.decrypt(encryptedApiKey)
-      : process.env.ANTHROPIC_API_KEY;
+    const ANTHROPIC_API_KEY = apiKey || process.env.ANTHROPIC_API_KEY;
     
     if (!ANTHROPIC_API_KEY) {
       throw new Error('ANTHROPIC_API_KEY is not configured');

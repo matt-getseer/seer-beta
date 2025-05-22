@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import { prisma } from '../utils/prisma';
-import { EncryptionService } from '../services/encryption.service';
 
 // Using singleton Prisma client from utils/prisma
 
@@ -85,7 +84,7 @@ export class APIKeyController {
         aiProvider
       };
       
-      // If an API key is provided, encrypt and store it
+      // If an API key is provided, store it directly
       if (apiKey !== undefined) {
         if (apiKey === "") {
           // Empty string means disconnect/remove the API key
@@ -97,20 +96,13 @@ export class APIKeyController {
             updateData.hasOpenAIKey = false;
           }
         } else if (apiKey) {
-          // Non-empty string means encrypt and store the API key
-          try {
-            const encryptedKey = EncryptionService.encrypt(apiKey);
-            
-            if (aiProvider === 'anthropic') {
-              updateData.anthropicApiKey = encryptedKey;
-              updateData.hasAnthropicKey = true;
-            } else {
-              updateData.openaiApiKey = encryptedKey;
-              updateData.hasOpenAIKey = true;
-            }
-          } catch (encryptError) {
-            console.error('Error encrypting API key:', encryptError);
-            return res.status(500).json({ error: 'Failed to secure API key' });
+          // Store the API key directly without encryption
+          if (aiProvider === 'anthropic') {
+            updateData.anthropicApiKey = apiKey;
+            updateData.hasAnthropicKey = true;
+          } else {
+            updateData.openaiApiKey = apiKey;
+            updateData.hasOpenAIKey = true;
           }
         }
       }

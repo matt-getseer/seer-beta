@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // The specific user ID we're creating meetings for
-const userId = 'b353730f-ea6f-4772-a9cf-cb86b273a3f0';
+const userId = '46863fb6-9bd5-4502-9a4b-2962c910d5f9';
 
 // Create a mix of good and bad meetings
 async function main() {

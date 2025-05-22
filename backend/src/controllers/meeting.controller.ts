@@ -201,7 +201,7 @@ export class MeetingController {
             ${meeting.teamMemberId}, 
             ${meeting.id}, 
             'incomplete', 
-            ${now.toISOString()}
+            ${now}::timestamp
           )
         `;
       }

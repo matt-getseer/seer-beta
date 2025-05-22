@@ -58,7 +58,7 @@ async function migrateAllActionItems() {
             ${meeting.teamMemberId}, 
             ${meeting.id}, 
             'incomplete', 
-            ${now.toISOString()}
+            ${now}::timestamp
           )
         `;
         
