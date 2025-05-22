@@ -37,7 +37,7 @@ const verifyClerkWebhookSignature = (req: Request & { rawBody?: string }): boole
 
     // Get raw body as a string (important for exact matching)
     // Use the preserved rawBody that we saved in the express middleware
-    const rawBody = req.rawBody || JSON.stringify(req.body);
+    const rawBody = req.rawBody ? req.rawBody.toString() : JSON.stringify(req.body);
     console.log('Webhook body length:', rawBody.length);
     
     // Prepare the message to sign
@@ -124,7 +124,7 @@ const verifySvixWebhookSignature = (req: Request & { rawBody?: string }): boolea
     }
 
     // Get the raw body
-    const payload = req.rawBody || JSON.stringify(req.body);
+    const payload = req.rawBody ? req.rawBody.toString() : JSON.stringify(req.body);
     
     try {
       // Create a new Webhook instance with the secret
