@@ -9,6 +9,17 @@ export interface User {
   adminId?: string | null;
 }
 
+// Action Item interface
+export interface ActionItem {
+  id: string;
+  text: string;
+  assignedTo?: string; // Team member ID
+  assigneeName?: string; // Team member name for display
+  status: 'incomplete' | 'complete';
+  createdAt: string;
+  completedAt?: string;
+}
+
 // Key Area interface
 export interface KeyArea {
   id: string;
@@ -70,7 +81,7 @@ export interface Meeting {
   executiveSummary?: string;
   wins?: string[];
   areasForSupport?: string[];
-  actionItems?: string[];
+  actionItems?: ActionItem[];
   transcript?: string;
   recordingUrl?: string;
   createdBy?: string;
