@@ -388,4 +388,205 @@ export class MeetingController {
       });
     }
   }
+
+  /**
+   * Get meeting changes history
+   */
+  static async getMeetingChanges(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
+      
+      const meetingId = req.params.id;
+      
+      // Validate the meeting exists and user has access to it
+      const meeting = await prisma.meeting.findUnique({
+        where: { id: meetingId },
+        include: {
+          user: true
+        }
+      });
+      
+      if (!meeting) {
+        return res.status(404).json({ error: 'Meeting not found' });
+      }
+      
+      // Check if the user is the admin who created the meeting or the team member
+      const isAuthorized = meeting.createdBy === userId || meeting.teamMemberId === userId;
+      
+      if (!isAuthorized) {
+        return res.status(403).json({ error: 'Not authorized to view this meeting' });
+      }
+      
+      // Get all changes for this meeting, sorted by most recent first
+      const changes = await prisma.meetingChange.findMany({
+        where: { meetingId },
+        orderBy: { createdAt: 'desc' }
+      });
+      
+      return res.status(200).json(changes);
+    } catch (error) {
+      console.error('Error retrieving meeting changes:', error);
+      return res.status(500).json({ 
+        error: 'Failed to retrieve meeting changes',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Generate an agenda for a meeting based on previous meetings
+   */
+  static async generateAgenda(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
+      
+      const { meetingId } = req.params;
+      
+      if (!meetingId) {
+        return res.status(400).json({ error: 'Meeting ID is required' });
+      }
+      
+      // Get the current meeting
+      const currentMeeting = await prisma.meeting.findUnique({
+        where: { id: meetingId },
+        include: {
+          actionItemsData: true
+        }
+      });
+      
+      if (!currentMeeting) {
+        return res.status(404).json({ error: 'Meeting not found' });
+      }
+      
+      // Get previous meetings for the same team member, ordered by date (most recent first)
+      const previousMeetings = await prisma.meeting.findMany({
+        where: {
+          teamMemberId: currentMeeting.teamMemberId,
+          date: { lt: currentMeeting.date },
+          status: 'completed',
+          processingStatus: 'completed'
+        },
+        include: {
+          actionItemsData: true
+        },
+        orderBy: {
+          date: 'desc'
+        },
+        take: 3 // Get the last 3 meetings
+      });
+      
+      if (previousMeetings.length === 0) {
+        return res.status(200).json({
+          phases: [
+            {
+              name: "Phase 1: Connect & Set the Stage",
+              items: [
+                "Personal Check-in & Open",
+                "Team Member's Top of Mind (Their Agenda First)",
+                "Quick Wins & Shout-outs"
+              ]
+            },
+            {
+              name: "Phase 2: Focus & Action",
+              items: [
+                "Key Priorities & Progress Review",
+                "Challenges, Support & Roadblocks",
+                "Development & Growth"
+              ]
+            },
+            {
+              name: "Phase 3: Clarity & Closure",
+              items: [
+                "Action Items & Next Steps",
+                "Feedback Loop",
+                "Forward Look & Closing"
+              ]
+            }
+          ],
+          note: "No previous meetings found for this team member. A default agenda has been generated."
+        });
+      }
+      
+      // Get the most recent meeting
+      const mostRecentMeeting = previousMeetings[0];
+      
+      // Prepare structured data from previous meetings
+      const previousData = {
+        wins: mostRecentMeeting.wins || [],
+        areasForSupport: mostRecentMeeting.areasForSupport || [],
+        actionItems: [
+          ...(mostRecentMeeting.actionItems || []),
+          ...(mostRecentMeeting.actionItemsData?.map(item => item.text) || [])
+        ]
+      };
+      
+      // Get team member name
+      const teamMember = await prisma.user.findUnique({
+        where: { id: currentMeeting.teamMemberId },
+        select: { name: true }
+      });
+      
+      const teamMemberName = teamMember?.name || 'Team Member';
+      
+      // Import AnthropicService dynamically
+      const { AnthropicService } = await import('../services/anthropic.service');
+      
+      try {
+        // Call the dedicated method for agenda generation
+        const response = await AnthropicService.generateAgenda(
+          teamMemberName,
+          previousData
+        );
+        
+        return res.status(200).json(response);
+      } catch (aiError) {
+        console.error('Error generating agenda with AI:', aiError);
+        
+        // Fallback to basic structure if AI fails
+        return res.status(200).json({
+          phases: [
+            {
+              name: "Phase 1: Connect & Set the Stage",
+              items: [
+                "Personal Check-in & Open",
+                "Team Member's Top of Mind (Their Agenda First)",
+                "Quick Wins & Shout-outs"
+              ]
+            },
+            {
+              name: "Phase 2: Focus & Action",
+              items: [
+                "Key Priorities & Progress Review",
+                "Challenges, Support & Roadblocks",
+                "Development & Growth"
+              ]
+            },
+            {
+              name: "Phase 3: Clarity & Closure",
+              items: [
+                "Action Items & Next Steps",
+                "Feedback Loop",
+                "Forward Look & Closing"
+              ]
+            }
+          ],
+          error: "Failed to generate personalized agenda. Using default structure instead."
+        });
+      }
+    } catch (error) {
+      console.error('Error generating agenda:', error);
+      return res.status(500).json({ 
+        error: 'Failed to generate agenda',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
 } 

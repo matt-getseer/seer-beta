@@ -402,4 +402,28 @@ export class MeetingBaasService {
       throw new Error('Failed to handle meeting completion');
     }
   }
+
+  /**
+   * Get calendar event details from MeetingBaas
+   */
+  static async getCalendarEvent(eventId: string): Promise<any> {
+    try {
+      console.log(`Fetching calendar event details for ${eventId}`);
+      
+      // Call the MeetingBaas API to get event details
+      const response = await axios.get(
+        `${MEETINGBAAS_API_URL}/calendar_events/${eventId}`,
+        {
+          headers: {
+            'x-meeting-baas-api-key': MEETINGBAAS_API_KEY
+          }
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      console.error(`Error fetching calendar event ${eventId}:`, error);
+      throw new Error(`Failed to fetch calendar event details for ${eventId}`);
+    }
+  }
 } 

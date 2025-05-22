@@ -35,6 +35,9 @@ router.get('/analysis/:teamMemberId/:analysisId', requireAuth, MeetingAnalysisCo
 // Get a specific meeting
 router.get('/:id', requireAuth, MeetingController.getMeetingById);
 
+// Get meeting changes history
+router.get('/:id/changes', requireAuth, MeetingController.getMeetingChanges);
+
 // Action Item routes
 // Get all action items for a meeting
 router.get('/:id/action-items', requireAuth, ActionItemController.getActionItems);
@@ -61,5 +64,8 @@ router.delete('/:id', isAdmin, MeetingController.deleteMeeting);
 // Webhook endpoint for meeting completion
 // Apply webhook verification middleware
 router.post('/webhook', verifyMeetingBaasWebhook, MeetingWebhookController.handleMeetingCompleted);
+
+// Generate agenda for a meeting
+router.get('/:meetingId/agenda', requireAuth, MeetingController.generateAgenda);
 
 export default router; 

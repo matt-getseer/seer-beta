@@ -123,12 +123,39 @@ model Meeting {
   // Relations for structured action items
   actionItemsData   ActionItem[] @relation("MeetingActionItems")
   
+  // Calendar change tracking
+  changes           MeetingChange[] @relation("MeetingChanges")
+  
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   
   // Relations
   createdBy         String    // User id who created this meeting
   user              User      @relation("UserMeetings", fields: [createdBy], references: [id], onDelete: Cascade)
+}
+
+// Model to track calendar changes to meetings
+model MeetingChange {
+  id          String    @id @default(uuid())
+  meetingId   String
+  meeting     Meeting   @relation("MeetingChanges", fields: [meetingId], references: [id], onDelete: Cascade)
+  
+  changeType  String    // "updated", "deleted", "moved", etc.
+  eventId     String?   // The calendar event ID from MeetingBaas
+  changeData  Json?     // JSON data of what was changed
+  
+  previousTitle     String?
+  previousDate      DateTime?
+  previousDuration  Int?
+  
+  newTitle     String?
+  newDate      DateTime?
+  newDuration  Int?
+  
+  createdAt   DateTime  @default(now())
+  
+  @@index([meetingId])
+  @@index([changeType])
 }
 
 // New model for structured action items

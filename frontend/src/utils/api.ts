@@ -297,6 +297,18 @@ export const meetingApi = {
   // Get a specific analysis by ID
   getAnalysisById: async (teamMemberId: string, analysisId: string): Promise<AnalysisHistory> => {
     return fetchApi<AnalysisHistory>(`/api/meetings/analysis/${teamMemberId}/${analysisId}`);
+  },
+  
+  // Generate an agenda for a meeting based on previous meetings
+  generateAgenda: async (meetingId: string): Promise<{
+    phases: {
+      name: string;
+      items: string[];
+    }[];
+    note?: string;
+    error?: string;
+  }> => {
+    return fetchApi(`/api/meetings/${meetingId}/agenda`);
   }
 };
 
