@@ -465,6 +465,12 @@ export class MeetingController {
       if (!currentMeeting) {
         return res.status(404).json({ error: 'Meeting not found' });
       }
+
+      // Check if agenda already exists in the database
+      if (currentMeeting.agenda) {
+        // If agenda exists, return it
+        return res.status(200).json(currentMeeting.agenda);
+      }
       
       // Get previous meetings for the same team member, ordered by date (most recent first)
       const previousMeetings = await prisma.meeting.findMany({
@@ -483,8 +489,10 @@ export class MeetingController {
         take: 3 // Get the last 3 meetings
       });
       
+      let agendaResponse;
+      
       if (previousMeetings.length === 0) {
-        return res.status(200).json({
+        agendaResponse = {
           phases: [
             {
               name: "Phase 1: Connect & Set the Stage",
@@ -512,75 +520,81 @@ export class MeetingController {
             }
           ],
           note: "No previous meetings found for this team member. A default agenda has been generated."
+        };
+      } else {
+        // Get the most recent meeting
+        const mostRecentMeeting = previousMeetings[0];
+        
+        // Prepare structured data from previous meetings
+        const previousData = {
+          wins: mostRecentMeeting.wins || [],
+          areasForSupport: mostRecentMeeting.areasForSupport || [],
+          actionItems: [
+            ...(mostRecentMeeting.actionItems || []),
+            ...(mostRecentMeeting.actionItemsData?.map(item => item.text) || [])
+          ]
+        };
+        
+        // Get team member name
+        const teamMember = await prisma.user.findUnique({
+          where: { id: currentMeeting.teamMemberId },
+          select: { name: true }
         });
+        
+        const teamMemberName = teamMember?.name || 'Team Member';
+        
+        // Import AnthropicService dynamically
+        const { AnthropicService } = await import('../services/anthropic.service');
+        
+        try {
+          // Call the dedicated method for agenda generation
+          agendaResponse = await AnthropicService.generateAgenda(
+            teamMemberName,
+            previousData
+          );
+        } catch (aiError) {
+          console.error('Error generating agenda with AI:', aiError);
+          
+          // Fallback to basic structure if AI fails
+          agendaResponse = {
+            phases: [
+              {
+                name: "Phase 1: Connect & Set the Stage",
+                items: [
+                  "Personal Check-in & Open",
+                  "Team Member's Top of Mind (Their Agenda First)",
+                  "Quick Wins & Shout-outs"
+                ]
+              },
+              {
+                name: "Phase 2: Focus & Action",
+                items: [
+                  "Key Priorities & Progress Review",
+                  "Challenges, Support & Roadblocks",
+                  "Development & Growth"
+                ]
+              },
+              {
+                name: "Phase 3: Clarity & Closure",
+                items: [
+                  "Action Items & Next Steps",
+                  "Feedback Loop",
+                  "Forward Look & Closing"
+                ]
+              }
+            ],
+            error: "Failed to generate personalized agenda. Using default structure instead."
+          };
+        }
       }
       
-      // Get the most recent meeting
-      const mostRecentMeeting = previousMeetings[0];
-      
-      // Prepare structured data from previous meetings
-      const previousData = {
-        wins: mostRecentMeeting.wins || [],
-        areasForSupport: mostRecentMeeting.areasForSupport || [],
-        actionItems: [
-          ...(mostRecentMeeting.actionItems || []),
-          ...(mostRecentMeeting.actionItemsData?.map(item => item.text) || [])
-        ]
-      };
-      
-      // Get team member name
-      const teamMember = await prisma.user.findUnique({
-        where: { id: currentMeeting.teamMemberId },
-        select: { name: true }
+      // Store the agenda in the database
+      await prisma.meeting.update({
+        where: { id: meetingId },
+        data: { agenda: agendaResponse }
       });
       
-      const teamMemberName = teamMember?.name || 'Team Member';
-      
-      // Import AnthropicService dynamically
-      const { AnthropicService } = await import('../services/anthropic.service');
-      
-      try {
-        // Call the dedicated method for agenda generation
-        const response = await AnthropicService.generateAgenda(
-          teamMemberName,
-          previousData
-        );
-        
-        return res.status(200).json(response);
-      } catch (aiError) {
-        console.error('Error generating agenda with AI:', aiError);
-        
-        // Fallback to basic structure if AI fails
-        return res.status(200).json({
-          phases: [
-            {
-              name: "Phase 1: Connect & Set the Stage",
-              items: [
-                "Personal Check-in & Open",
-                "Team Member's Top of Mind (Their Agenda First)",
-                "Quick Wins & Shout-outs"
-              ]
-            },
-            {
-              name: "Phase 2: Focus & Action",
-              items: [
-                "Key Priorities & Progress Review",
-                "Challenges, Support & Roadblocks",
-                "Development & Growth"
-              ]
-            },
-            {
-              name: "Phase 3: Clarity & Closure",
-              items: [
-                "Action Items & Next Steps",
-                "Feedback Loop",
-                "Forward Look & Closing"
-              ]
-            }
-          ],
-          error: "Failed to generate personalized agenda. Using default structure instead."
-        });
-      }
+      return res.status(200).json(agendaResponse);
     } catch (error) {
       console.error('Error generating agenda:', error);
       return res.status(500).json({ 

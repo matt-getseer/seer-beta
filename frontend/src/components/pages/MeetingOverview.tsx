@@ -160,24 +160,6 @@ const MeetingOverview = () => {
     }
   }, [activeTab, id, agenda, loadingAgenda]);
   
-  // Regenerate agenda
-  const handleRegenerateAgenda = async () => {
-    if (!id) return;
-    
-    setLoadingAgenda(true);
-    setAgendaError(null);
-    
-    try {
-      const agendaData = await meetingApi.generateAgenda(id);
-      setAgenda(agendaData);
-    } catch (error) {
-      console.error('Error regenerating agenda:', error);
-      setAgendaError('Failed to regenerate agenda. Please try again.');
-    } finally {
-      setLoadingAgenda(false);
-    }
-  };
-
   // Handle status toggle for action items
   const toggleActionItemStatus = async (actionItem: ActionItem) => {
     if (!meeting || !meeting.id) return;
@@ -648,13 +630,6 @@ const MeetingOverview = () => {
                 ) : agendaError ? (
                   <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded">
                     <p>{agendaError}</p>
-                    <button
-                      onClick={handleRegenerateAgenda}
-                      className="mt-2 inline-flex items-center px-3 py-1.5 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50"
-                    >
-                      <ArrowClockwise size={16} className="mr-1.5" />
-                      Try Again
-                    </button>
                   </div>
                 ) : agenda ? (
                   <div>
