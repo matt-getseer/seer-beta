@@ -181,16 +181,21 @@ export class ActionItemController {
         if (assignedTo !== undefined) {
           // If assignedTo is provided and not null, verify that user exists
           if (assignedTo) {
-            const assignedUser = await prisma.user.findUnique({
-              where: {
-                id: assignedTo
+            // Special case for 'admin' value which doesn't need validation
+            if (assignedTo === 'admin') {
+              updateFields.push(`"assignedTo" = '${assignedTo}'`);
+            } else {
+              const assignedUser = await prisma.user.findUnique({
+                where: {
+                  id: assignedTo
+                }
+              });
+              
+              if (!assignedUser) {
+                return res.status(400).json({ error: 'Assigned user not found' });
               }
-            });
-            
-            if (!assignedUser) {
-              return res.status(400).json({ error: 'Assigned user not found' });
+              updateFields.push(`"assignedTo" = '${assignedTo}'`);
             }
-            updateFields.push(`"assignedTo" = '${assignedTo}'`);
           } else {
             updateFields.push(`"assignedTo" = NULL`);
           }
