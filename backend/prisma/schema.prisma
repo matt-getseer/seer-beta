@@ -119,6 +119,7 @@ model Meeting {
   actionItems       String[]  // Legacy format - will be migrated to ActionItem relation
   keyInsights       String[]  @default([])
   clientFeedback    String[]  @default([])
+  agenda            Json?     // Store meeting agenda
   
   // Relations for structured action items
   actionItemsData   ActionItem[] @relation("MeetingActionItems")
