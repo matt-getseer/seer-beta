@@ -25,7 +25,7 @@ interface NLPResult {
   executiveSummary: string;
   wins: string[];
   areasForSupport: string[];
-  actionItems: string[];
+  tasks: string[];
 }
 
 /**
@@ -390,7 +390,7 @@ export class MeetingBaasService {
           executiveSummary: nlpResult.executiveSummary,
           wins: nlpResult.wins,
           areasForSupport: nlpResult.areasForSupport,
-          actionItems: nlpResult.actionItems,
+          tasks: nlpResult.tasks,
           recordingUrl: recordingUrl,
           // Store additional data if available
           ...(nlpResult.keyInsights ? { keyInsights: nlpResult.keyInsights } : {}),

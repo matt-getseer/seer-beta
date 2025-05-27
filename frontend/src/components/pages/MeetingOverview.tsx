@@ -4,10 +4,10 @@ import axios from 'axios';
 import { ArrowLeft, VideoCamera, Check, Clock } from 'phosphor-react';
 import { useAuth } from '@clerk/clerk-react';
 import VideoPlayer from '../VideoPlayer';
-import ActionItemSidebar from '../ActionItemSidebar';
+import TaskSidebar from '../TaskSidebar';
 import MeetingChangesModal from '../MeetingChangesModal';
-import type { TeamMember, ActionItem } from '../../interfaces';
-import { meetingApi } from '../../utils/api';
+import type { TeamMember, Task } from '../../interfaces';
+import { meetingApi, userApi } from '../../utils/api';
 import { useApiState } from '../../hooks/useApiState';
 import { formatMeetingDateTime, formatDuration } from '../../utils/dateUtils';
 import StatusBadge from '../StatusBadge';
@@ -29,7 +29,7 @@ interface Meeting {
   executiveSummary?: string;
   wins?: string[];
   areasForSupport?: string[];
-  actionItems?: ActionItem[]; // Updated to use ActionItem type
+  tasks?: Task[]; // Updated to use Task type
   transcript?: string;
   recordingUrl?: string;
 }
@@ -43,7 +43,7 @@ const MeetingOverview = () => {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [{ loading, error }, { setLoading, setError }] = useApiState(true);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [selectedActionItem, setSelectedActionItem] = useState<ActionItem | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [showChangesModal, setShowChangesModal] = useState(false);
@@ -58,12 +58,17 @@ const MeetingOverview = () => {
   } | null>(null);
   const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [agendaError, setAgendaError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   useEffect(() => {
     const fetchMeeting = async () => {
       setLoading(true);
       try {
         const token = await getToken();
+        
+        // Get current user ID
+        const currentUser = await userApi.getCurrentUser();
+        setCurrentUserId(currentUser.id);
         const response = await axios.get(`${API_URL}/api/meetings/${id}`, {
           headers: {
             Authorization: `Bearer ${token}`
@@ -84,23 +89,23 @@ const MeetingOverview = () => {
           teamMembersMap.set(member.id, member.name);
         });
         
-        // Process action items - prefer structured actionItemsData if available
-        let processedActionItems = [];
+        // Process tasks - prefer structured tasksData if available
+        let processedTasks = [];
         
-        if (response.data.actionItemsData && response.data.actionItemsData.length > 0) {
+        if (response.data.tasksData && response.data.tasksData.length > 0) {
           // We have the new structured format
-          processedActionItems = response.data.actionItemsData.map((item: Omit<ActionItem, 'assigneeName'>) => ({
+          processedTasks = response.data.tasksData.map((item: Omit<Task, 'assigneeName'>) => ({
             id: item.id,
             text: item.text,
             status: item.status as 'incomplete' | 'complete',
             createdAt: item.createdAt,
             completedAt: item.completedAt,
             assignedTo: item.assignedTo,
-            assigneeName: item.assignedTo === 'admin' ? 'Me' : (item.assignedTo ? teamMembersMap.get(item.assignedTo) : undefined)
+            assigneeName: item.assignedTo === currentUser.id ? 'Me' : (item.assignedTo ? teamMembersMap.get(item.assignedTo) : undefined)
           }));
         } else if (response.data.actionItems && response.data.actionItems.length > 0) {
           // Fall back to legacy string array format if needed
-          processedActionItems = response.data.actionItems.map((item: string, index: number) => ({
+          processedTasks = response.data.actionItems.map((item: string, index: number) => ({
             id: `legacy-${index}`,
             text: item,
             status: 'incomplete' as 'incomplete' | 'complete',
@@ -113,7 +118,7 @@ const MeetingOverview = () => {
         // Format date for display
         const meetingData = {
           ...response.data,
-          actionItems: processedActionItems,
+          tasks: processedTasks,
           teamMember: teamMembersMap.get(response.data.teamMemberId) || 'Unknown',
           date: formatMeetingDateTime(response.data.date),
           duration: formatDuration(response.data.duration)
@@ -156,196 +161,98 @@ const MeetingOverview = () => {
     }
   }, [activeTab, id, agenda, loadingAgenda]);
   
-  // Handle status toggle for action items
-  const toggleActionItemStatus = async (actionItem: ActionItem) => {
+  // Handle status toggle for tasks
+  const toggleTaskStatus = async (task: Task) => {
     if (!meeting || !meeting.id) return;
     
-    const newStatus = actionItem.status === 'complete' ? 'incomplete' : 'complete';
+    const newStatus = task.status === 'complete' ? 'incomplete' : 'complete';
     
     try {
       const token = await getToken();
+      await axios.patch(`${API_URL}/api/meetings/${meeting.id}/tasks/${task.id}`, {
+        status: newStatus
+      }, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
       
-      // Check if this is a legacy action item (id starts with "legacy-")
-      if (actionItem.id.startsWith('legacy-')) {
-        // For legacy items, we'll just update locally since they're not in the database yet
-        const updatedActionItems = meeting.actionItems?.map(item => 
-          item.id === actionItem.id 
-            ? { 
-                ...item, 
-                status: newStatus as 'complete' | 'incomplete',
-                completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined
-              } 
-            : item
-        );
-        
-        setMeeting({
-          ...meeting,
-          actionItems: updatedActionItems
-        });
-        
-        // If the sidebar is open with this item, update it
-        if (selectedActionItem && selectedActionItem.id === actionItem.id) {
-          setSelectedActionItem({
-            ...selectedActionItem,
-            status: newStatus as 'complete' | 'incomplete',
-            completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined
-          });
-        }
-      } else {
-        // For structured items, call the API
-        await axios.patch(
-          `${API_URL}/api/meetings/${meeting.id}/action-items/${actionItem.id}`,
-          {
-            status: newStatus,
-            completedAt: newStatus === 'complete' ? new Date().toISOString() : null
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          }
-        );
-        
-        // Update local state
-        const updatedActionItems = meeting.actionItems?.map(item => 
-          item.id === actionItem.id 
-            ? { 
-                ...item, 
-                status: newStatus as 'complete' | 'incomplete',
-                completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined
-              } 
-            : item
-        );
-        
-        setMeeting({
-          ...meeting,
-          actionItems: updatedActionItems
-        });
-        
-        // If the sidebar is open with this item, update it
-        if (selectedActionItem && selectedActionItem.id === actionItem.id) {
-          setSelectedActionItem({
-            ...selectedActionItem,
-            status: newStatus as 'complete' | 'incomplete',
-            completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined
-          });
-        }
+      // Update the meeting state
+      setMeeting(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks?.map(t => 
+                         t.id === task.id 
+               ? { ...t, status: newStatus, completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined }
+              : t
+          ) || []
+        };
+      });
+      
+      // Close sidebar if task was completed
+      if (newStatus === 'complete') {
+        closeSidebar();
       }
     } catch (error) {
-      // Error updating action item status
-      // Show error message to user
-      alert('Error updating action item status. Please try again.');
+      console.error('Error updating task status:', error);
     }
   };
-  
-  // Handle assignment change
-  const updateActionItemAssignment = async (actionItem: ActionItem, teamMemberId: string) => {
+
+  // Handle assignment update for tasks
+  const updateTaskAssignment = async (task: Task, newAssigneeId: string) => {
     if (!meeting || !meeting.id) return;
     
     try {
       const token = await getToken();
-      // Set assigneeName based on teamMemberId
-      let assigneeName;
-      if (teamMemberId === 'admin') {
-        assigneeName = 'Me'; // Hard-coded name for admin
-      } else if (teamMemberId) {
-        assigneeName = teamMembers.find(member => member.id === teamMemberId)?.name;
-      } else {
-        assigneeName = undefined; // For unassigned
-      }
+      await axios.patch(`${API_URL}/api/meetings/${meeting.id}/tasks/${task.id}`, {
+        assignedTo: newAssigneeId
+      }, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
       
-      // Check if this is a legacy action item (id starts with "legacy-")
-      if (actionItem.id.startsWith('legacy-')) {
-        // For legacy items, we'll just update locally since they're not in the database yet
-        const updatedActionItems = meeting.actionItems?.map(item => 
-          item.id === actionItem.id 
-            ? { 
-                ...item, 
-                assignedTo: teamMemberId,
-                assigneeName: assigneeName || undefined
-              } 
-            : item
-        );
-        
-        setMeeting({
-          ...meeting,
-          actionItems: updatedActionItems
-        });
-        
-        // If the sidebar is open with this item, update it
-        if (selectedActionItem && selectedActionItem.id === actionItem.id) {
-          setSelectedActionItem({
-            ...selectedActionItem,
-            assignedTo: teamMemberId,
-            assigneeName: assigneeName || undefined
-          });
-        }
-      } else {
-        // For structured items, call the API
-        await axios.patch(
-          `${API_URL}/api/meetings/${meeting.id}/action-items/${actionItem.id}`,
-          {
-            assignedTo: teamMemberId
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          }
-        );
-        
-        // Update local state
-        const updatedActionItems = meeting.actionItems?.map(item => 
-          item.id === actionItem.id 
-            ? { 
-                ...item, 
-                assignedTo: teamMemberId,
-                assigneeName: assigneeName || undefined
-              } 
-            : item
-        );
-        
-        setMeeting({
-          ...meeting,
-          actionItems: updatedActionItems
-        });
-        
-        // If the sidebar is open with this item, update it
-        if (selectedActionItem && selectedActionItem.id === actionItem.id) {
-          setSelectedActionItem({
-            ...selectedActionItem,
-            assignedTo: teamMemberId,
-            assigneeName: assigneeName || undefined
-          });
-        }
+      // Find the assignee name
+      const assigneeName = newAssigneeId === currentUserId ? 'Me' : teamMembers.find(m => m.id === newAssigneeId)?.name || undefined;
+      
+      // Update the meeting state
+      setMeeting(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks?.map(t => 
+            t.id === task.id 
+              ? { ...t, assignedTo: newAssigneeId, assigneeName }
+              : t
+          ) || []
+        };
+      });
+      
+      // Update selected task if it's the one being updated
+      if (selectedTask && selectedTask.id === task.id) {
+        setSelectedTask({ ...selectedTask, assignedTo: newAssigneeId, assigneeName });
       }
     } catch (error) {
-      // Error updating action item assignment
-      // Show error message to user
-      alert('Error updating assignment. Please try again.');
+      console.error('Error updating task assignment:', error);
     }
   };
-  
-  // Open sidebar for action item details
-  const openActionItemDetails = (actionItem: ActionItem) => {
-    setSelectedActionItem(actionItem);
-    setSidebarOpen(true);
-    // Delay setting visible for animation
-    setTimeout(() => setSidebarVisible(true), 10);
+
+  // Handle task click
+  const handleTaskClick = (task: Task) => {
+    setSelectedTask(task);
+    setSidebarVisible(true);
+    setTimeout(() => setSidebarOpen(true), 50);
   };
-  
+
   // Close sidebar
   const closeSidebar = () => {
-    // First hide with animation
-    setSidebarVisible(false);
-    // Then fully close after animation completes
+    setSidebarOpen(false);
     setTimeout(() => {
-      setSidebarOpen(false);
-      setSelectedActionItem(null);
+      setSidebarVisible(false);
+      setSelectedTask(null);
     }, 300);
   };
-  
-  // Status functions now handled by StatusBadge component
   
   return (
     <div className="relative">
@@ -532,47 +439,46 @@ const MeetingOverview = () => {
                     </div>
                   </div>
                   
-                  {/* Action Items - Updated with task functionality */}
+                  {/* Tasks */}
                   <div>
-                    <h2 className="text-lg font-medium text-gray-900 mb-4">Action Items</h2>
+                    <h2 className="text-lg font-medium text-gray-900 mb-4">Tasks</h2>
                     <div className="bg-blue-50 p-4 rounded-lg">
-                      {meeting.actionItems && meeting.actionItems.length > 0 ? (
-                        <ul className="space-y-2">
-                          {meeting.actionItems.map((item) => (
-                            <li 
-                              key={item.id} 
-                              className="flex items-start p-2 rounded hover:bg-blue-100 transition-colors cursor-pointer"
-                              onClick={() => openActionItemDetails(item)}
-                            >
-                              <button 
-                                className={`flex-shrink-0 w-5 h-5 mr-2 rounded-full border ${
-                                  item.status === 'complete' 
-                                    ? 'bg-blue-500 border-blue-500 text-white flex items-center justify-center' 
-                                    : 'border-blue-500'
-                                }`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleActionItemStatus(item);
-                                }}
-                                aria-label={item.status === 'complete' ? 'Mark as incomplete' : 'Mark as complete'}
-                              >
-                                {item.status === 'complete' && <Check size={12} weight="bold" />}
-                              </button>
-                              <div className="flex-1">
-                                <span className={`text-gray-700 ${item.status === 'complete' ? 'line-through' : ''}`}>
-                                  {item.text}
-                                </span>
-                                <div className="mt-1">
-                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getAssignmentBadgeClass(!!item.assigneeName)}`}>
-                                    {item.assigneeName || 'Unassigned'}
-                                  </span>
+                      {meeting.tasks && meeting.tasks.length > 0 ? (
+                        <ul className="space-y-3">
+                          {meeting.tasks.map((task, index) => (
+                            <li key={task.id || index} className="flex items-start justify-between">
+                              <div className="flex items-start flex-1 min-w-0">
+                                <button
+                                  onClick={() => toggleTaskStatus(task)}
+                                  className={`flex-shrink-0 mt-0.5 mr-3 w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
+                                    task.status === 'complete'
+                                      ? 'bg-green-500 border-green-500 text-white'
+                                      : 'border-gray-300 hover:border-green-400'
+                                  }`}
+                                >
+                                  {task.status === 'complete' && <Check size={12} />}
+                                </button>
+                                <div className="flex-1 min-w-0">
+                                  <button
+                                    onClick={() => handleTaskClick(task)}
+                                    className={`text-left w-full text-sm transition-colors hover:text-blue-600 ${
+                                      task.status === 'complete' ? 'line-through text-gray-500' : 'text-gray-700'
+                                    }`}
+                                  >
+                                    {task.text}
+                                  </button>
+                                  <div className="mt-1">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getAssignmentBadgeClass(!!task.assignedTo)}`}>
+                                      {task.assigneeName || 'Unassigned'}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             </li>
                           ))}
                         </ul>
                       ) : (
-                        <p className="text-gray-500 italic">No action items recorded</p>
+                        <p className="text-gray-500 italic">No tasks identified</p>
                       )}
                     </div>
                   </div>
@@ -685,16 +591,17 @@ const MeetingOverview = () => {
         />
       )}
 
-      {/* Action Item Sidebar Component */}
-      <ActionItemSidebar
+      {/* Task Sidebar Component */}
+      <TaskSidebar
         isOpen={sidebarOpen}
         isVisible={sidebarVisible}
-        actionItem={selectedActionItem}
+        task={selectedTask}
+        currentUserId={currentUserId}
         teamMemberId={meeting?.teamMemberId}
         teamMemberName={meeting?.teamMember}
         onClose={closeSidebar}
-        onStatusToggle={toggleActionItemStatus}
-        onAssignmentUpdate={updateActionItemAssignment}
+        onStatusToggle={toggleTaskStatus}
+        onAssignmentUpdate={updateTaskAssignment}
       />
     </div>
   );

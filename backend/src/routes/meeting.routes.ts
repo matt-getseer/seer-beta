@@ -2,7 +2,7 @@ import express from 'express';
 import { MeetingController } from '../controllers/meeting.controller';
 import { MeetingWebhookController } from '../controllers/meeting-webhook.controller';
 import { MeetingAnalysisController } from '../controllers/meeting-analysis.controller';
-import { ActionItemController } from '../controllers/action-item.controller';
+import { TaskController } from '../controllers/task.controller';
 import { authenticate, requireAuth, isAdmin } from '../middleware/auth.middleware';
 import { verifyMeetingBaasWebhook } from '../middleware/webhookAuth.middleware';
 
@@ -41,18 +41,21 @@ router.get('/:id', requireAuth, MeetingController.getMeetingById);
 // Get meeting changes history
 router.get('/:id/changes', requireAuth, MeetingController.getMeetingChanges);
 
-// Action Item routes
-// Get all action items for a meeting
-router.get('/:id/action-items', requireAuth, ActionItemController.getActionItems);
+// Task routes
+// Get all tasks across all meetings (admin only)
+router.get('/tasks/all', isAdmin, TaskController.getAllTasks);
 
-// Create a new action item
-router.post('/:id/action-items', requireAuth, ActionItemController.createActionItem);
+// Get all tasks for a meeting
+router.get('/:id/tasks', requireAuth, TaskController.getTasks);
 
-// Update an action item
-router.patch('/:id/action-items/:actionItemId', requireAuth, ActionItemController.updateActionItem);
+// Create a new task
+router.post('/:id/tasks', requireAuth, TaskController.createTask);
 
-// Delete an action item
-router.delete('/:id/action-items/:actionItemId', requireAuth, ActionItemController.deleteActionItem);
+// Update a task
+router.patch('/:id/tasks/:taskId', requireAuth, TaskController.updateTask);
+
+// Delete a task
+router.delete('/:id/tasks/:taskId', requireAuth, TaskController.deleteTask);
 
 // Write operations - accessible only to admins
 // Create a meeting - only admin can create meetings

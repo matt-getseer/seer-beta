@@ -85,6 +85,46 @@ export class AIService {
   }
 
   /**
+   * Helper function to call Gemini API
+   */
+  static async callGeminiAPI(prompt: string, apiKey: string) {
+    try {
+      if (!apiKey) {
+        throw new Error('Gemini API key is not provided');
+      }
+
+      const response = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          contents: [
+            {
+              parts: [
+                {
+                  text: prompt
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 4000,
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data.candidates[0].content.parts[0].text;
+    } catch (error) {
+      console.error('Error calling Gemini API:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Enhanced JSON parsing with multiple fallback methods
    */
   static parseJSONResponse(responseContent: string): any {
@@ -168,8 +208,10 @@ export class AIService {
           aiProvider: true,
           anthropicApiKey: true,
           openaiApiKey: true,
+          geminiApiKey: true,
           hasAnthropicKey: true,
-          hasOpenAIKey: true
+          hasOpenAIKey: true,
+          hasGeminiKey: true
         }
       });
       
@@ -183,6 +225,9 @@ export class AIService {
         } else if (user.aiProvider === 'anthropic' && user.hasAnthropicKey && user.anthropicApiKey) {
           console.log('Using custom Anthropic API key');
           response = await this.callAnthropicAPI(prompt);
+        } else if (user.aiProvider === 'gemini' && user.hasGeminiKey && user.geminiApiKey) {
+          console.log('Using custom Gemini API key');
+          response = await this.callGeminiAPI(prompt, user.geminiApiKey);
         } else if (options.fallbackToDefault && ANTHROPIC_API_KEY) {
           console.log('Custom AI configured but not available, falling back to system Anthropic');
           response = await this.callAnthropicAPI(prompt);

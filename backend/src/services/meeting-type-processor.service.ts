@@ -78,18 +78,29 @@ export class MeetingTypeProcessorService {
         };
       }
       
+      // Check if we can use Gemini
+      if (customAiProvider === 'gemini' && customApiKey) {
+        // Import dynamically to avoid circular dependencies
+        const { GeminiService } = await import('./gemini.service');
+        const geminiResult = await GeminiService.processTranscript(transcript, {}, customApiKey);
+        return {
+          ...baseResult,
+          ...geminiResult,
+        };
+      }
+      
       // Fallback to basic processing if no API key is available
       console.warn('No AI API key available, using basic processing');
       
       // Simple summary (would be replaced by proper NLP)
       baseResult.executiveSummary = `Meeting transcript processed on ${new Date().toLocaleString()}. The transcript contains ${transcript.length} characters.`;
       
-      // Extract action items (very basic - look for phrases like "ACTION:")
-      const actionItemRegex = /action:?\s*(.*?)(?=\n|$)/gi;
+      // Extract tasks (very basic - look for phrases like "ACTION:")
+      const taskRegex = /action:?\s*(.*?)(?=\n|$)/gi;
       let match;
-      while ((match = actionItemRegex.exec(transcript)) !== null) {
+      while ((match = taskRegex.exec(transcript)) !== null) {
         if (match[1].trim()) {
-          baseResult.actionItems.push(match[1].trim());
+          baseResult.tasks.push(match[1].trim());
         }
       }
       
@@ -137,6 +148,20 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
+        };
+      }
+      
+      // Check if we can use Gemini
+      if (customAiProvider === 'gemini' && customApiKey) {
+        // Import dynamically to avoid circular dependencies
+        const { GeminiService } = await import('./gemini.service');
+        const geminiResult = await GeminiService.processTranscript(transcript, {
+          meetingType: 'one-on-one',
+          additionalInstructions: 'Focus on personal development goals, feedback, and career growth discussions.'
+        }, customApiKey);
+        return {
+          ...baseResult,
+          ...geminiResult,
         };
       }
       
@@ -301,6 +326,20 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
+        };
+      }
+      
+      // Check if we can use Gemini
+      if (customAiProvider === 'gemini' && customApiKey) {
+        // Import dynamically to avoid circular dependencies
+        const { GeminiService } = await import('./gemini.service');
+        const geminiResult = await GeminiService.processTranscript(transcript, {
+          meetingType: 'sales-call',
+          additionalInstructions: 'Focus on objections raised, budget discussions, timeline negotiations, and next steps.'
+        }, customApiKey);
+        return {
+          ...baseResult,
+          ...geminiResult,
         };
       }
       

@@ -9,8 +9,8 @@ export interface User {
   adminId?: string | null;
 }
 
-// Action Item interface
-export interface ActionItem {
+// Task interface
+export interface Task {
   id: string;
   text: string;
   assignedTo?: string; // Team member ID
@@ -52,7 +52,7 @@ export interface AnalysisHistory {
   analyzedAt: string;
   wins: string[];
   areasForSupport: string[];
-  actionItems: string[];
+  tasks: string[];
 }
 
 export interface TeamMember extends User {
@@ -62,7 +62,7 @@ export interface TeamMember extends User {
   lastSignedIn: string;
   wins?: string[];
   areasForSupport?: string[];
-  actionItems?: string[];
+  tasks?: string[];
   keyAreas?: KeyArea[];
   recentActivity?: Activity[];
 }
@@ -81,7 +81,7 @@ export interface Meeting {
   executiveSummary?: string;
   wins?: string[];
   areasForSupport?: string[];
-  actionItems?: ActionItem[];
+  tasks?: Task[];
   transcript?: string;
   recordingUrl?: string;
   createdBy?: string;

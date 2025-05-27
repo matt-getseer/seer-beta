@@ -13,7 +13,7 @@ export interface AnthropicMessage {
 export interface MeetingAnalysisResult {
   wins: string[];
   areasForSupport: string[];
-  actionItems: string[];
+  tasks: string[];
 }
 
 /**
@@ -67,7 +67,7 @@ export async function analyzeMeetings(
     transcript?: string;
     wins?: string[];
     areasForSupport?: string[];
-    actionItems?: string[];
+    tasks?: string[];
   }[], 
   customKey?: string
 ): Promise<MeetingAnalysisResult> {
@@ -80,7 +80,7 @@ export async function analyzeMeetings(
       transcript: meeting.transcript ? meeting.transcript.substring(0, 1000) + '...' : '',
       wins: meeting.wins || [],
       areasForSupport: meeting.areasForSupport || [],
-      actionItems: meeting.actionItems || []
+      tasks: meeting.tasks || []
     }));
 
     // Prepare prompt for Claude
@@ -91,7 +91,7 @@ export async function analyzeMeetings(
 Based on these meetings, I need you to identify:
 1. 5-8 significant wins the person has achieved
 2. 5-8 areas where they need support
-3. 5-8 action items they should focus on
+3. 5-8 tasks they should focus on
 
 Look for patterns across meetings, not just single occurrences.
 
@@ -102,7 +102,7 @@ Please respond in JSON format with exactly this structure:
 {
   "wins": ["win 1", "win 2", ...],
   "areasForSupport": ["area 1", "area 2", ...],
-  "actionItems": ["action 1", "action 2", ...]
+  "tasks": ["task 1", "task 2", ...]
 }
 Each category should have 5-8 items. Make each item concise but descriptive.`
       }
@@ -125,7 +125,7 @@ Each category should have 5-8 items. Make each item concise but descriptive.`
       const sanitizedResult: MeetingAnalysisResult = {
         wins: parsedResult.wins?.slice(0, 8) || [],
         areasForSupport: parsedResult.areasForSupport?.slice(0, 8) || [],
-        actionItems: parsedResult.actionItems?.slice(0, 8) || []
+        tasks: parsedResult.tasks?.slice(0, 8) || []
       };
       
       return sanitizedResult;
@@ -135,7 +135,7 @@ Each category should have 5-8 items. Make each item concise but descriptive.`
       return {
         wins: ['Unable to analyze meeting data'],
         areasForSupport: ['Unable to analyze meeting data'],
-        actionItems: ['Unable to analyze meeting data']
+        tasks: ['Unable to analyze meeting data']
       };
     }
   } catch (error) {

@@ -59,7 +59,7 @@ async function main() {
         "Time management during client-facing meetings could be more effective",
         "Balancing short-term delivery needs with long-term technical vision"
       ],
-      actionItems: [
+      tasks: [
         "Create delegation plan for at least 20% of current technical workload by next week",
         "Block calendar for non-work hours to enforce better work-life balance",
         "Schedule shadowing with senior architect to observe cross-team collaboration techniques",
@@ -99,7 +99,7 @@ async function main() {
         "Scaling influence beyond immediate team to broader organization",
         "Confidence in executive-level communications"
       ],
-      actionItems: [
+      tasks: [
         "Schedule 5-year technical vision workshop with architecture team",
         "Create requirements gathering template with explicit scope boundaries",
         "Implement quarterly technical debt review with prioritization framework",
@@ -139,7 +139,7 @@ async function main() {
         "Finding opportunities for strategic influence at executive level",
         "Managing growing demands on time as visibility increases"
       ],
-      actionItems: [
+      tasks: [
         "Role play difficult stakeholder conversations in next coaching session",
         "Create innovation time allocation framework (20% time approach)",
         "Identify strategic organizational initiative to lead in Q3",
@@ -179,7 +179,7 @@ async function main() {
         "Maintaining technical depth while expanding leadership breadth",
         "Establishing boundaries as demands on time continue to increase"
       ],
-      actionItems: [
+      tasks: [
         "Schedule presentation coaching session for conference preparation",
         "Read 'Influencing Without Authority' book and apply key techniques",
         "Create technical leadership impact metrics dashboard",
@@ -219,7 +219,7 @@ async function main() {
         "Planning long-term career progression beyond current growth trajectory",
         "Balancing advocacy for team needs with organizational constraints"
       ],
-      actionItems: [
+      tasks: [
         "Identify top three processes that could be improved through automation/tooling",
         "Schedule political navigation coaching session with experienced executive",
         "Create authentic communication framework for different organizational levels",
@@ -259,7 +259,7 @@ async function main() {
         "Creating appropriate work boundaries as influence and responsibilities grow",
         "Maintaining energy and focus with increasing demands on time"
       ],
-      actionItems: [
+      tasks: [
         "Create external opportunity management system with clear filtering criteria",
         "Develop technical leadership transition plan for strategic project",
         "Design scalable mentoring program structure as alternative to 1:1 only approach",
@@ -299,7 +299,7 @@ async function main() {
         "Building structure for knowledge sharing that doesn't rely on synchronous communication",
         "Preparing for potential organizational changes in engineering leadership"
       ],
-      actionItems: [
+      tasks: [
         "Document technical decision-making framework with delegation guidelines",
         "Create engineering practice flexibility matrix showing required vs. optional standards",
         "Schedule workshop with Finance to improve technical investment business cases",
@@ -323,7 +323,7 @@ async function main() {
       createdBy: userId,
       wins: [],
       areasForSupport: [],
-      actionItems: []
+      tasks: []
     }
   ];
   

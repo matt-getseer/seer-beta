@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
 import NewMeetingModal from '../NewMeetingModal';
-import type { TeamMember } from '../../interfaces';
+
 import { useApiState } from '../../hooks/useApiState';
 import { formatMeetingDate, formatDuration } from '../../utils/dateUtils';
 import StatusBadge from '../StatusBadge';

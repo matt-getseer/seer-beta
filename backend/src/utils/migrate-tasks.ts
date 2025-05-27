@@ -1,25 +1,25 @@
 /**
- * Utility script to migrate all legacy action items to the new structured format
- * Run with: npx ts-node src/utils/migrate-action-items.ts
+ * Utility script to migrate all legacy tasks to the new structured format
+ * Run with: npx ts-node src/utils/migrate-tasks.ts
  */
 
 import { prisma } from '../utils/prisma';
 import crypto from 'crypto';
 
-async function migrateAllActionItems() {
-  console.log('Starting action item migration...');
+async function migrateAllTasks() {
+  console.log('Starting task migration...');
   
   try {
-    // Get all meetings with legacy action items
+    // Get all meetings with legacy tasks
     const meetings = await prisma.meeting.findMany({
       where: {
-        actionItems: {
+        tasks: {
           isEmpty: false
         }
       }
     });
     
-    console.log(`Found ${meetings.length} meetings with legacy action items to migrate`);
+    console.log(`Found ${meetings.length} meetings with legacy tasks to migrate`);
     
     let totalMigrated = 0;
     
@@ -27,24 +27,24 @@ async function migrateAllActionItems() {
     for (const meeting of meetings) {
       console.log(`Processing meeting ${meeting.id}: "${meeting.title}"`);
       
-      // Check if this meeting already has structured action items
-      const existingActionItems = await prisma.$queryRaw`
-        SELECT * FROM "ActionItem" WHERE "meetingId" = ${meeting.id}
+      // Check if this meeting already has structured tasks
+      const existingTasks = await prisma.$queryRaw`
+        SELECT * FROM "Task" WHERE "meetingId" = ${meeting.id}
       ` as any[];
       
-      if (existingActionItems.length > 0) {
-        console.log(`  Meeting already has ${existingActionItems.length} structured action items, skipping`);
+      if (existingTasks.length > 0) {
+        console.log(`  Meeting already has ${existingTasks.length} structured tasks, skipping`);
         continue;
       }
       
-      // Migrate each legacy action item
+      // Migrate each legacy task
       let migratedCount = 0;
-      for (const text of meeting.actionItems) {
+      for (const text of meeting.tasks) {
         const now = new Date();
         const id = crypto.randomUUID();
         
         await prisma.$executeRaw`
-          INSERT INTO "ActionItem" (
+          INSERT INTO "Task" (
             "id", 
             "text", 
             "assignedTo", 
@@ -65,11 +65,11 @@ async function migrateAllActionItems() {
         migratedCount++;
       }
       
-      console.log(`  Migrated ${migratedCount} action items for meeting ${meeting.id}`);
+      console.log(`  Migrated ${migratedCount} tasks for meeting ${meeting.id}`);
       totalMigrated += migratedCount;
     }
     
-    console.log(`Migration complete. Total action items migrated: ${totalMigrated}`);
+    console.log(`Migration complete. Total tasks migrated: ${totalMigrated}`);
   } catch (error) {
     console.error('Error during migration:', error);
     process.exit(1);
@@ -79,12 +79,12 @@ async function migrateAllActionItems() {
 }
 
 // Run the migration
-migrateAllActionItems()
+migrateAllTasks()
   .then(() => {
     console.log('Migration script completed successfully');
     process.exit(0);
   })
-  .catch((error) => {
+  .catch((error: any) => {
     console.error('Migration script failed:', error);
     process.exit(1);
   }); 

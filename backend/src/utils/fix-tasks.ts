@@ -3,20 +3,20 @@ import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
-async function migrateActionItems() {
-  console.log('Starting action item migration...');
+async function migrateTasks() {
+  console.log('Starting task migration...');
   
   try {
-    // Get all meetings with legacy action items
+    // Get all meetings with legacy tasks
     const meetings = await prisma.meeting.findMany({
       where: {
-        actionItems: {
+        tasks: {
           isEmpty: false
         }
       }
     });
     
-    console.log(`Found ${meetings.length} meetings with legacy action items to migrate`);
+    console.log(`Found ${meetings.length} meetings with legacy tasks to migrate`);
     
     let totalMigrated = 0;
     
@@ -24,24 +24,24 @@ async function migrateActionItems() {
     for (const meeting of meetings) {
       console.log(`Processing meeting ${meeting.id}: "${meeting.title}"`);
       
-      // Check if this meeting already has structured action items
-      const existingActionItems = await prisma.actionItem.findMany({
+      // Check if this meeting already has structured tasks
+      const existingTasks = await prisma.task.findMany({
         where: {
           meetingId: meeting.id
         }
       });
       
-      if (existingActionItems.length > 0) {
-        console.log(`  Meeting already has ${existingActionItems.length} structured action items, skipping`);
+      if (existingTasks.length > 0) {
+        console.log(`  Meeting already has ${existingTasks.length} structured tasks, skipping`);
         continue;
       }
       
-      // Migrate each legacy action item
+      // Migrate each legacy task
       let migratedCount = 0;
       
-      for (const text of meeting.actionItems) {
-        // Create new structured action item
-        await prisma.actionItem.create({
+      for (const text of meeting.tasks) {
+        // Create new structured task
+        await prisma.task.create({
           data: {
             id: crypto.randomUUID(),
             text: text,
@@ -55,11 +55,11 @@ async function migrateActionItems() {
         migratedCount++;
       }
       
-      console.log(`  Migrated ${migratedCount} action items for meeting ${meeting.id}`);
+      console.log(`  Migrated ${migratedCount} tasks for meeting ${meeting.id}`);
       totalMigrated += migratedCount;
     }
     
-    console.log(`Migration complete. Total action items migrated: ${totalMigrated}`);
+    console.log(`Migration complete. Total tasks migrated: ${totalMigrated}`);
   } catch (error) {
     console.error('Error during migration:', error);
   } finally {
@@ -68,12 +68,12 @@ async function migrateActionItems() {
 }
 
 // Run the migration
-migrateActionItems()
+migrateTasks()
   .then(() => {
     console.log('Migration script completed successfully');
     process.exit(0);
   })
-  .catch((error) => {
+  .catch((error: any) => {
     console.error('Migration script failed:', error);
     process.exit(1);
   }); 

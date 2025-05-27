@@ -20,7 +20,7 @@ export interface NLPResult {
   executiveSummary: string;
   wins: string[];
   areasForSupport: string[];
-  actionItems: string[];
+  tasks: string[];
   // Add any additional fields needed for specialized meeting types
   keyInsights?: string[];
   followUpQuestions?: string[];
@@ -69,8 +69,10 @@ export class MeetingProcessorService {
           aiProvider: true,
           anthropicApiKey: true,
           openaiApiKey: true,
+          geminiApiKey: true,
           hasAnthropicKey: true,
-          hasOpenAIKey: true
+          hasOpenAIKey: true,
+          hasGeminiKey: true
         }
       });
       
@@ -95,6 +97,14 @@ export class MeetingProcessorService {
           } catch (error) {
             console.error('Error with OpenAI API key:', error);
           }
+        } else if (user.aiProvider === 'gemini' && user.hasGeminiKey && user.geminiApiKey) {
+          try {
+            customApiKey = user.geminiApiKey;
+            customAiProvider = 'gemini';
+            console.log('Using custom Gemini API key');
+          } catch (error) {
+            console.error('Error with Gemini API key:', error);
+          }
         }
       }
       
@@ -104,7 +114,7 @@ export class MeetingProcessorService {
         executiveSummary: '',
         wins: [],
         areasForSupport: [],
-        actionItems: [],
+        tasks: [],
         keyInsights: [],
       };
       

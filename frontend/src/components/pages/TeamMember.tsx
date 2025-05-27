@@ -77,7 +77,7 @@ const TeamMember = () => {
           bio: 'Loading profile data...',
           wins: [],
           areasForSupport: [],
-          actionItems: [],
+          tasks: [],
           recentActivity: []
         };
         
@@ -103,7 +103,7 @@ const TeamMember = () => {
                 bio: `${prev.name} has no meeting data available yet.`,
                 wins: ['No meeting data available'],
                 areasForSupport: ['No meeting data available'],
-                actionItems: ['No meeting data available']
+                tasks: ['No meeting data available']
               };
             });
             setAnalyzing(false);
@@ -179,7 +179,7 @@ const TeamMember = () => {
                 bio: `${prev.name} is a ${prev.role} who joined the team on ${formatJoinDate(prev.joinDate || '')}.`,
                 wins: analysis.wins,
                 areasForSupport: analysis.areasForSupport,
-                actionItems: analysis.actionItems
+                tasks: analysis.tasks
               };
             });
           } catch (analysisError) {
@@ -198,7 +198,7 @@ const TeamMember = () => {
                   bio: `${prev.name} is a ${prev.role} who joined the team on ${new Date(prev.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`,
                   wins: clientAnalysis.wins,
                   areasForSupport: clientAnalysis.areasForSupport,
-                  actionItems: clientAnalysis.actionItems
+                  tasks: clientAnalysis.tasks
                 };
               });
             } catch (clientAnalysisError) {
@@ -211,7 +211,7 @@ const TeamMember = () => {
                   bio: `${prev.name} is a ${prev.role} who joined the team on ${new Date(prev.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`,
                   wins: ['Analysis currently unavailable'],
                   areasForSupport: ['Analysis currently unavailable'],
-                  actionItems: ['Analysis currently unavailable']
+                  tasks: ['Analysis currently unavailable']
                 };
               });
             }
@@ -225,7 +225,7 @@ const TeamMember = () => {
               bio: `${prev.name} is a ${prev.role} who joined the team on ${new Date(prev.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`,
               wins: ['Failed to load meeting data'],
               areasForSupport: ['Failed to load meeting data'],
-              actionItems: ['Failed to load meeting data']
+              tasks: ['Failed to load meeting data']
             };
           });
         } finally {
@@ -272,7 +272,7 @@ const TeamMember = () => {
           ...prev,
           wins: analysisData.wins || [],
           areasForSupport: analysisData.areasForSupport || [],
-          actionItems: analysisData.actionItems || []
+          tasks: analysisData.tasks || []
         };
       });
       
@@ -315,7 +315,7 @@ const TeamMember = () => {
           ...prev,
           wins: currentAnalysis.wins,
           areasForSupport: currentAnalysis.areasForSupport,
-          actionItems: currentAnalysis.actionItems
+          tasks: currentAnalysis.tasks
         };
       });
     } catch (error) {
@@ -447,7 +447,7 @@ const TeamMember = () => {
           ...prev,
           wins: analysis.wins,
           areasForSupport: analysis.areasForSupport,
-          actionItems: analysis.actionItems
+          tasks: analysis.tasks
         };
       });
       
@@ -669,12 +669,12 @@ const TeamMember = () => {
               {/* Action Items */}
               <div>
                 <h2 className="text-lg font-medium text-gray-900 mb-4">
-                  Action Items
+                  Tasks
                   {analyzing && <span className="ml-2 text-sm text-gray-500">(Analyzing...)</span>}
                 </h2>
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <ul className="space-y-2">
-                    {teamMember.actionItems?.map((item, index) => (
+                    {teamMember.tasks?.map((item, index) => (
                       <li key={index} className="flex items-start">
                         <span className="text-blue-500 mr-2">•</span>
                         <span className="text-gray-700">{item}</span>

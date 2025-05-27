@@ -204,30 +204,30 @@ export class MeetingController {
         return res.status(403).json({ error: 'You do not have access to this meeting' });
       }
       
-      // Check for legacy action items that need migration
-      if (meeting.actionItems && meeting.actionItems.length > 0) {
-        // Get existing structured action items
-        const existingActionItems = await prisma.$queryRaw`
-          SELECT * FROM "ActionItem" WHERE "meetingId" = ${meetingId}
+      // Check for legacy tasks that need migration
+      if (meeting.tasks && meeting.tasks.length > 0) {
+        // Get existing structured tasks
+        const existingTasks = await prisma.$queryRaw`
+          SELECT * FROM "Task" WHERE "meetingId" = ${meetingId}
         ` as any[];
         
-        // Only migrate if we don't already have structured action items
-        if (existingActionItems.length === 0) {
-          // Migrate legacy action items to structured format
-          await MeetingController.migrateLegacyActionItems(meeting);
+        // Only migrate if we don't already have structured tasks
+        if (existingTasks.length === 0) {
+          // Migrate legacy tasks to structured format
+          await MeetingController.migrateLegacyTasks(meeting);
         }
       }
       
-      // Get structured action items separately (to avoid TypeScript issues)
-      const actionItems = await prisma.$queryRaw`
-        SELECT * FROM "ActionItem" WHERE "meetingId" = ${meetingId}
+      // Get structured tasks separately (to avoid TypeScript issues)
+      const tasks = await prisma.$queryRaw`
+        SELECT * FROM "Task" WHERE "meetingId" = ${meetingId}
         ORDER BY "createdAt" ASC
       ` as any[];
       
-      // Combine the meeting with structured action items
+      // Combine the meeting with structured tasks
       const response = {
         ...meeting,
-        actionItemsData: actionItems
+        tasksData: tasks
       };
       
       return res.status(200).json(response);
@@ -241,22 +241,22 @@ export class MeetingController {
   }
 
   /**
-   * Migrate legacy string-based action items to structured ones
+   * Migrate legacy string-based tasks to structured ones
    */
-  private static async migrateLegacyActionItems(meeting: any) {
+  private static async migrateLegacyTasks(meeting: any) {
     try {
-      console.log(`Migrating legacy action items for meeting ${meeting.id}`);
+      console.log(`Migrating legacy tasks for meeting ${meeting.id}`);
       
-      if (!meeting.actionItems || meeting.actionItems.length === 0) {
+      if (!meeting.tasks || meeting.tasks.length === 0) {
         return;
       }
       
-      // Create a structured action item for each legacy item
-      for (const text of meeting.actionItems) {
+      // Create a structured task for each legacy item
+      for (const text of meeting.tasks) {
         const now = new Date();
         
         await prisma.$executeRaw`
-          INSERT INTO "ActionItem" (
+          INSERT INTO "Task" (
             "id", 
             "text", 
             "assignedTo", 
@@ -275,9 +275,9 @@ export class MeetingController {
         `;
       }
       
-      console.log(`Successfully migrated ${meeting.actionItems.length} action items for meeting ${meeting.id}`);
+      console.log(`Successfully migrated ${meeting.tasks.length} tasks for meeting ${meeting.id}`);
     } catch (error) {
-      console.error('Error migrating legacy action items:', error);
+      console.error('Error migrating legacy tasks:', error);
       // We'll just log the error but continue - migration can be retried later
     }
   }
@@ -347,7 +347,7 @@ export class MeetingController {
             meetingType: "one_on_one",
             wins: [],
             areasForSupport: [],
-            actionItems: []
+            tasks: []
           } as any
         });
         
@@ -527,7 +527,7 @@ export class MeetingController {
       const currentMeeting = await prisma.meeting.findUnique({
         where: { id: meetingId },
         include: {
-          actionItemsData: true
+          tasksData: true
         }
       });
       
@@ -550,7 +550,7 @@ export class MeetingController {
           processingStatus: 'completed'
         },
         include: {
-          actionItemsData: true
+          tasksData: true
         },
         orderBy: {
           date: 'desc'
@@ -599,8 +599,8 @@ export class MeetingController {
           wins: mostRecentMeeting.wins || [],
           areasForSupport: mostRecentMeeting.areasForSupport || [],
           actionItems: [
-            ...(mostRecentMeeting.actionItems || []),
-            ...(mostRecentMeeting.actionItemsData?.map(item => item.text) || [])
+            ...(mostRecentMeeting.tasks || []),
+            ...(mostRecentMeeting.tasksData?.map((item: any) => item.text) || [])
           ]
         };
         

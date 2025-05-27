@@ -44,11 +44,13 @@ model User {
   
   // AI settings for custom processing
   useCustomAI       Boolean   @default(false)
-  aiProvider        String    @default("anthropic") // "anthropic" or "openai"
+  aiProvider        String    @default("anthropic") // "anthropic", "openai", or "gemini"
   anthropicApiKey   String?   // Encrypted
   openaiApiKey      String?   // Encrypted
+  geminiApiKey      String?   // Encrypted
   hasAnthropicKey   Boolean   @default(false)
   hasOpenAIKey      Boolean   @default(false)
+  hasGeminiKey      Boolean   @default(false)
   
   // Analysis relationship
   analysis          UserAnalysis?
@@ -68,7 +70,7 @@ model UserAnalysis {
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   wins            String[]
   areasForSupport String[]
-  actionItems     String[]
+  tasks           String[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
@@ -79,7 +81,7 @@ model AnalysisHistory {
   user            User      @relation("UserAnalysisHistory", fields: [userId], references: [id], onDelete: Cascade)
   wins            String[]
   areasForSupport String[]
-  actionItems     String[]
+  tasks           String[]
   analyzedAt      DateTime  @default(now())
   
   @@index([userId, analyzedAt(sort: Desc)])
@@ -121,13 +123,13 @@ model Meeting {
   executiveSummary  String?   @db.Text
   wins              String[]  
   areasForSupport   String[]
-  actionItems       String[]  // Legacy format - will be migrated to ActionItem relation
+  tasks             String[]  // Legacy format - will be migrated to Task relation
   keyInsights       String[]  @default([])
   clientFeedback    String[]  @default([])
   agenda            Json?     // Store meeting agenda
   
-  // Relations for structured action items
-  actionItemsData   ActionItem[] @relation("MeetingActionItems")
+  // Relations for structured tasks
+  tasksData         Task[] @relation("MeetingTasks")
   
   // Calendar change tracking
   changes           MeetingChange[] @relation("MeetingChanges")
@@ -173,8 +175,8 @@ model MeetingChange {
   @@index([changeType])
 }
 
-// New model for structured action items
-model ActionItem {
+// New model for structured tasks
+model Task {
   id          String    @id @default(uuid())
   text        String
   status      String    @default("incomplete") // "incomplete" or "complete"
@@ -184,7 +186,7 @@ model ActionItem {
   
   // Relation to meeting
   meetingId   String
-  meeting     Meeting   @relation("MeetingActionItems", fields: [meetingId], references: [id], onDelete: Cascade)
+  meeting     Meeting   @relation("MeetingTasks", fields: [meetingId], references: [id], onDelete: Cascade)
   
   @@index([meetingId])
   @@index([assignedTo])

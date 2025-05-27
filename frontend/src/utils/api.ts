@@ -150,7 +150,7 @@ export interface Meeting {
   executiveSummary?: string;
   wins?: string[];
   areasForSupport?: string[];
-  actionItems?: string[];
+  tasks?: string[];
   transcript?: string;
   recordingUrl?: string;
 }
@@ -159,7 +159,7 @@ export interface Meeting {
 export interface TeamMemberAnalysis {
   wins: string[];
   areasForSupport: string[];
-  actionItems: string[];
+  tasks: string[];
   cached?: boolean;
   lastAnalyzedAt?: string;
 }
@@ -171,7 +171,18 @@ export interface AnalysisHistory {
   analyzedAt: string;
   wins: string[];
   areasForSupport: string[];
-  actionItems: string[];
+  tasks: string[];
+}
+
+// Task interface
+export interface Task {
+  id: string;
+  text: string;
+  assignedTo?: string; // Team member ID
+  assigneeName?: string; // Team member name for display
+  status: 'incomplete' | 'complete';
+  createdAt: string;
+  completedAt?: string;
 }
 
 // User API functions
@@ -320,6 +331,42 @@ export const meetingApi = {
   }
 };
 
+// Task API functions
+export const taskApi = {
+  // Get all tasks across all meetings (admin only)
+  getAllTasks: async (): Promise<Task[]> => {
+    return fetchApi<Task[]>('/api/meetings/tasks/all');
+  },
+  
+  // Get all tasks for a specific meeting
+  getTasks: async (meetingId: string): Promise<Task[]> => {
+    return fetchApi<Task[]>(`/api/meetings/${meetingId}/tasks`);
+  },
+  
+  // Create a new task
+  createTask: async (meetingId: string, taskData: { text: string; assignedTo?: string }): Promise<Task> => {
+    return fetchApi<Task>(`/api/meetings/${meetingId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(taskData),
+    });
+  },
+  
+  // Update a task
+  updateTask: async (meetingId: string, taskId: string, updates: Partial<Task>): Promise<Task> => {
+    return fetchApi<Task>(`/api/meetings/${meetingId}/tasks/${taskId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  },
+  
+  // Delete a task
+  deleteTask: async (meetingId: string, taskId: string): Promise<void> => {
+    return fetchApi<void>(`/api/meetings/${meetingId}/tasks/${taskId}`, {
+      method: 'DELETE',
+    });
+  }
+};
+
 // Key Area API functions
 export const keyAreaApi = {
   // Get key areas for a user
@@ -354,5 +401,6 @@ export const keyAreaApi = {
 export default {
   userApi,
   meetingApi,
+  taskApi,
   keyAreaApi
 }; 

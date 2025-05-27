@@ -32,10 +32,16 @@ const Settings = () => {
       id: 'openai', 
       name: 'OpenAI GPT',
       logo: <img src="/openai-logo.svg" alt="OpenAI" className="w-5 h-5" />
+    },
+    { 
+      id: 'gemini', 
+      name: 'Google Gemini',
+      logo: <img src="/gemini-logo.svg" alt="Google Gemini" className="w-5 h-5" />
     }
   ];
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
   const [isSavingAI, setIsSavingAI] = useState(false);
   const [aiSaveSuccess, setAiSaveSuccess] = useState(false);
   const [aiSaveError, setAiSaveError] = useState('');
@@ -175,6 +181,7 @@ const Settings = () => {
       // Clear API keys from state for security
       setAnthropicApiKey('');
       setOpenaiApiKey('');
+      setGeminiApiKey('');
     } catch (error) {
       // Error disconnecting AI provider
     } finally {
@@ -193,7 +200,7 @@ const Settings = () => {
       const payload = {
         useCustomAI,
         aiProvider,
-        apiKey: aiProvider === 'anthropic' ? anthropicApiKey : openaiApiKey
+        apiKey: aiProvider === 'anthropic' ? anthropicApiKey : aiProvider === 'openai' ? openaiApiKey : geminiApiKey
       };
       
       await axios.post(`${API_URL}/api/users/ai-settings`, payload, {
@@ -208,6 +215,7 @@ const Settings = () => {
       // Clear API keys from state for security
       setAnthropicApiKey('');
       setOpenaiApiKey('');
+      setGeminiApiKey('');
       
       // Set timeout to clear success message after 3 seconds
       setTimeout(() => {
@@ -278,7 +286,7 @@ const Settings = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-medium text-[#171717]">Use your own AI account</h3>
-                <p className="text-sm text-gray-500">Process meeting data using either ChatGPT or Anthropic</p>
+                <p className="text-sm text-gray-500">Process meeting data using ChatGPT, Anthropic, or Google Gemini</p>
               </div>
               <button 
                 className={`relative inline-flex h-6 w-11 items-center rounded-full ${useCustomAI ? 'bg-blue-600' : 'bg-gray-200'}`}
@@ -336,105 +344,118 @@ const Settings = () => {
 
                 {!aiConnected && (
                   <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
-                      <Listbox value={aiProvider} onChange={setAiProvider}>
-                        <div className="relative">
-                          <Listbox.Button className="relative w-full cursor-pointer rounded-md bg-white py-2 pl-3 pr-10 text-left border border-gray-300 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm">
-                            <span className="flex items-center">
-                              <span className="mr-3">
-                                {aiProviderOptions.find(option => option.id === aiProvider)?.logo}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
+                        <Listbox value={aiProvider} onChange={setAiProvider}>
+                          <div className="relative">
+                            <Listbox.Button className="relative w-full cursor-pointer rounded-md bg-white py-2 pl-3 pr-10 text-left border border-gray-300 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm">
+                              <span className="flex items-center">
+                                <span className="mr-3">
+                                  {aiProviderOptions.find(option => option.id === aiProvider)?.logo}
+                                </span>
+                                <span className="block truncate">
+                                  {aiProviderOptions.find(option => option.id === aiProvider)?.name}
+                                </span>
                               </span>
-                              <span className="block truncate">
-                                {aiProviderOptions.find(option => option.id === aiProvider)?.name}
+                              <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                                <CaretDown
+                                  size={20}
+                                  className="text-gray-400"
+                                  aria-hidden="true"
+                                />
                               </span>
-                            </span>
-                            <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
-                              <CaretDown
-                                size={20}
-                                className="text-gray-400"
-                                aria-hidden="true"
-                              />
-                            </span>
-                          </Listbox.Button>
-                          <Transition
-                            leave="transition ease-in duration-100"
-                            leaveFrom="opacity-100"
-                            leaveTo="opacity-0"
-                          >
-                            <Listbox.Options className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
-                              {aiProviderOptions.map((option) => (
-                                <Listbox.Option
-                                  key={option.id}
-                                  className={({ active }) =>
-                                    `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
-                                      active ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
-                                    }`
-                                  }
-                                  value={option.id}
-                                >
-                                  {({ selected }) => (
-                                    <>
-                                      <span className="flex items-center">
-                                        <span className="mr-3">
-                                          {option.logo}
+                            </Listbox.Button>
+                            <Transition
+                              leave="transition ease-in duration-100"
+                              leaveFrom="opacity-100"
+                              leaveTo="opacity-0"
+                            >
+                              <Listbox.Options className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
+                                {aiProviderOptions.map((option) => (
+                                  <Listbox.Option
+                                    key={option.id}
+                                    className={({ active }) =>
+                                      `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
+                                        active ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
+                                      }`
+                                    }
+                                    value={option.id}
+                                  >
+                                    {({ selected }) => (
+                                      <>
+                                        <span className="flex items-center">
+                                          <span className="mr-3">
+                                            {option.logo}
+                                          </span>
+                                          <span
+                                            className={`block truncate ${
+                                              selected ? 'font-medium' : 'font-normal'
+                                            }`}
+                                          >
+                                            {option.name}
+                                          </span>
                                         </span>
-                                        <span
-                                          className={`block truncate ${
-                                            selected ? 'font-medium' : 'font-normal'
-                                          }`}
-                                        >
-                                          {option.name}
-                                        </span>
-                                      </span>
-                                      {selected ? (
-                                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-blue-600">
-                                          <Check size={20} aria-hidden="true" />
-                                        </span>
-                                      ) : null}
-                                    </>
-                                  )}
-                                </Listbox.Option>
-                              ))}
-                            </Listbox.Options>
-                          </Transition>
+                                        {selected ? (
+                                          <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-blue-600">
+                                            <Check size={20} aria-hidden="true" />
+                                          </span>
+                                        ) : null}
+                                      </>
+                                    )}
+                                  </Listbox.Option>
+                                ))}
+                              </Listbox.Options>
+                            </Transition>
+                          </div>
+                        </Listbox>
+                      </div>
+                      
+                      {aiProvider === 'anthropic' ? (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Anthropic API Key
+                          </label>
+                          <input
+                            type="password"
+                            value={anthropicApiKey}
+                            onChange={(e) => setAnthropicApiKey(e.target.value)}
+                            placeholder="sk-ant-..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                          />
                         </div>
-                      </Listbox>
+                      ) : aiProvider === 'openai' ? (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            OpenAI API Key
+                          </label>
+                          <input
+                            type="password"
+                            value={openaiApiKey}
+                            onChange={(e) => setOpenaiApiKey(e.target.value)}
+                            placeholder="sk-..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Google Gemini API Key
+                          </label>
+                          <input
+                            type="password"
+                            value={geminiApiKey}
+                            onChange={(e) => setGeminiApiKey(e.target.value)}
+                            placeholder="AIza..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+                      )}
                     </div>
                     
-                    {aiProvider === 'anthropic' ? (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Anthropic API Key
-                        </label>
-                        <input
-                          type="password"
-                          value={anthropicApiKey}
-                          onChange={(e) => setAnthropicApiKey(e.target.value)}
-                          placeholder="sk-ant-..."
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                          Your API key will be encrypted and securely stored
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          OpenAI API Key
-                        </label>
-                        <input
-                          type="password"
-                          value={openaiApiKey}
-                          onChange={(e) => setOpenaiApiKey(e.target.value)}
-                          placeholder="sk-..."
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                          Your API key will be encrypted and securely stored
-                        </p>
-                      </div>
-                    )}
+                    <p className="text-xs text-gray-500">
+                      Your API key will be encrypted and securely stored
+                    </p>
                     
                     {aiSaveError && (
                       <p className="text-sm text-red-600">{aiSaveError}</p>
@@ -446,9 +467,9 @@ const Settings = () => {
                     
                     <button
                       onClick={saveAISettings}
-                      disabled={isSavingAI || (aiProvider === 'anthropic' && !anthropicApiKey) || (aiProvider === 'openai' && !openaiApiKey)}
+                      disabled={isSavingAI || (aiProvider === 'anthropic' && !anthropicApiKey) || (aiProvider === 'openai' && !openaiApiKey) || (aiProvider === 'gemini' && !geminiApiKey)}
                       className={`w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white 
-                        ${isSavingAI || (aiProvider === 'anthropic' && !anthropicApiKey) || (aiProvider === 'openai' && !openaiApiKey)
+                        ${isSavingAI || (aiProvider === 'anthropic' && !anthropicApiKey) || (aiProvider === 'openai' && !openaiApiKey) || (aiProvider === 'gemini' && !geminiApiKey)
                           ? 'bg-gray-400 cursor-not-allowed'
                           : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
                         }`}

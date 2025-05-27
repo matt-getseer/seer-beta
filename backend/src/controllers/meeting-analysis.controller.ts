@@ -134,7 +134,7 @@ export class MeetingAnalysisController {
         return res.status(200).json({
           wins: teamMember.analysis.wins,
           areasForSupport: teamMember.analysis.areasForSupport,
-          actionItems: teamMember.analysis.actionItems,
+          actionItems: teamMember.analysis.tasks,
           cached: true,
           lastAnalyzedAt: lastAnalyzedAt
         });
@@ -171,7 +171,7 @@ export class MeetingAnalysisController {
         executiveSummary: meeting.executiveSummary || '',
         wins: meeting.wins || [],
         areasForSupport: meeting.areasForSupport || [],
-        actionItems: meeting.actionItems || []
+        actionItems: meeting.tasks || []
       }));
       
       // Create prompt for Anthropic
@@ -228,14 +228,14 @@ Each category should have 5-8 items. Make each item concise but descriptive.`;
           update: {
             wins: sanitizedResult.wins,
             areasForSupport: sanitizedResult.areasForSupport,
-            actionItems: sanitizedResult.actionItems,
+            tasks: sanitizedResult.actionItems,
             updatedAt: now
           },
           create: {
             userId: teamMemberId,
             wins: sanitizedResult.wins,
             areasForSupport: sanitizedResult.areasForSupport,
-            actionItems: sanitizedResult.actionItems,
+            tasks: sanitizedResult.actionItems,
             createdAt: now,
             updatedAt: now
           }
@@ -260,7 +260,7 @@ Each category should have 5-8 items. Make each item concise but descriptive.`;
             userId: teamMemberId,
             wins: sanitizedResult.wins,
             areasForSupport: sanitizedResult.areasForSupport,
-            actionItems: sanitizedResult.actionItems,
+            tasks: sanitizedResult.actionItems,
             analyzedAt: analyzedAt
           }
         });

@@ -24,7 +24,8 @@ export class APIKeyController {
           aiProvider: true,
           // Do not return the actual API keys for security
           hasAnthropicKey: true,
-          hasOpenAIKey: true
+          hasOpenAIKey: true,
+          hasGeminiKey: true
         }
       });
       
@@ -35,7 +36,11 @@ export class APIKeyController {
       // Determine if the user has a valid API key for their selected provider
       const hasValidApiKey = user.aiProvider === 'anthropic' 
         ? (user.useCustomAI && user.hasAnthropicKey) 
-        : (user.useCustomAI && user.hasOpenAIKey);
+        : user.aiProvider === 'openai'
+          ? (user.useCustomAI && user.hasOpenAIKey)
+          : user.aiProvider === 'gemini'
+            ? (user.useCustomAI && user.hasGeminiKey)
+            : false;
       
       // Transform the data to a safer format for the frontend
       const settings = {
@@ -43,6 +48,7 @@ export class APIKeyController {
         aiProvider: user.aiProvider || 'anthropic',
         hasAnthropicKey: user.hasAnthropicKey || false,
         hasOpenAIKey: user.hasOpenAIKey || false,
+        hasGeminiKey: user.hasGeminiKey || false,
         hasValidApiKey
       };
       
@@ -74,7 +80,7 @@ export class APIKeyController {
         return res.status(400).json({ error: 'Invalid useCustomAI value' });
       }
       
-      if (aiProvider !== 'anthropic' && aiProvider !== 'openai') {
+      if (aiProvider !== 'anthropic' && aiProvider !== 'openai' && aiProvider !== 'gemini') {
         return res.status(400).json({ error: 'Invalid AI provider' });
       }
       
@@ -91,18 +97,24 @@ export class APIKeyController {
           if (aiProvider === 'anthropic') {
             updateData.anthropicApiKey = null;
             updateData.hasAnthropicKey = false;
-          } else {
+          } else if (aiProvider === 'openai') {
             updateData.openaiApiKey = null;
             updateData.hasOpenAIKey = false;
+          } else if (aiProvider === 'gemini') {
+            updateData.geminiApiKey = null;
+            updateData.hasGeminiKey = false;
           }
         } else if (apiKey) {
           // Store the API key directly without encryption
           if (aiProvider === 'anthropic') {
             updateData.anthropicApiKey = apiKey;
             updateData.hasAnthropicKey = true;
-          } else {
+          } else if (aiProvider === 'openai') {
             updateData.openaiApiKey = apiKey;
             updateData.hasOpenAIKey = true;
+          } else if (aiProvider === 'gemini') {
+            updateData.geminiApiKey = apiKey;
+            updateData.hasGeminiKey = true;
           }
         }
       }
@@ -135,7 +147,7 @@ export class APIKeyController {
         return res.status(400).json({ error: 'Provider and API key are required' });
       }
       
-      if (provider !== 'anthropic' && provider !== 'openai') {
+      if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'gemini') {
         return res.status(400).json({ error: 'Invalid AI provider' });
       }
       
