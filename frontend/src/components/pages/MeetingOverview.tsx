@@ -500,18 +500,17 @@ const MeetingOverview = () => {
                   {/* Wins */}
                   <div>
                     <h2 className="text-lg font-medium text-gray-900 mb-4">Wins</h2>
-                    <div className="bg-green-50 p-4 rounded-lg">
+                    <div className="space-y-3">
                       {meeting.wins && meeting.wins.length > 0 ? (
-                        <ul className="space-y-2">
-                          {meeting.wins.map((win, index) => (
-                            <li key={index} className="flex items-start">
-                              <span className="text-green-500 mr-2">•</span>
-                              <span className="text-gray-700">{win}</span>
-                            </li>
-                          ))}
-                        </ul>
+                        meeting.wins.map((win, index) => (
+                          <div key={index} className="bg-green-50 p-4 rounded-lg">
+                            <span className="text-gray-700">{win}</span>
+                          </div>
+                        ))
                       ) : (
-                        <p className="text-gray-500 italic">No wins recorded</p>
+                        <div className="bg-green-50 p-4 rounded-lg">
+                          <p className="text-gray-500 italic">No wins recorded</p>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -519,18 +518,17 @@ const MeetingOverview = () => {
                   {/* Areas for Support */}
                   <div>
                     <h2 className="text-lg font-medium text-gray-900 mb-4">Areas for Support</h2>
-                    <div className="bg-yellow-50 p-4 rounded-lg">
+                    <div className="space-y-3">
                       {meeting.areasForSupport && meeting.areasForSupport.length > 0 ? (
-                        <ul className="space-y-2">
-                          {meeting.areasForSupport.map((area, index) => (
-                            <li key={index} className="flex items-start">
-                              <span className="text-yellow-500 mr-2">•</span>
-                              <span className="text-gray-700">{area}</span>
-                            </li>
-                          ))}
-                        </ul>
+                        meeting.areasForSupport.map((area, index) => (
+                          <div key={index} className="bg-yellow-50 p-4 rounded-lg">
+                            <span className="text-gray-700">{area}</span>
+                          </div>
+                        ))
                       ) : (
-                        <p className="text-gray-500 italic">No areas for support identified</p>
+                        <div className="bg-yellow-50 p-4 rounded-lg">
+                          <p className="text-gray-500 italic">No areas for support identified</p>
+                        </div>
                       )}
                     </div>
                   </div>
