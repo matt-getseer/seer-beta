@@ -201,107 +201,69 @@ export class AnthropicService {
       
       // If we need to parse JSON and responseFormat is json
       if (options.parseJSON && options.responseFormat === 'json') {
+        console.log('Raw response content:', responseContent);
+        
         try {
-          // Try direct parsing first
+          // Method 1: Try direct parsing first
           try {
-            return JSON.parse(responseContent);
+            const parsed = JSON.parse(responseContent);
+            console.log('Direct JSON parsing successful');
+            return parsed;
           } catch (directParseError) {
-            console.log('Direct parsing failed, trying alternative methods');
-            
-            // Method 1: Try to extract JSON using regex
-            const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              try {
-                return JSON.parse(jsonMatch[0]);
-              } catch (regexParseError) {
-                console.log('Regex extraction failed');
-              }
-            }
-            
-            // Method 2: Try to sanitize the response by replacing any potential invalid characters
-            try {
-              // Replace any invisible characters
-              const sanitized = responseContent
-                .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-                .replace(/\\/g, '\\\\') // Escape backslashes
-                .replace(/\n/g, '') // Remove newlines
-                .replace(/\r/g, '') // Remove carriage returns
-                .replace(/\t/g, ''); // Remove tabs
-              
-              return JSON.parse(sanitized);
-            } catch (sanitizeError) {
-              console.log('Sanitizing attempt failed');
-            }
-            
-            // Method 3: Try using a more lenient approach - manual parsing
-            if (responseContent.includes('"phases"')) {
-              console.log('Attempting manual extraction of phases');
-              
-              // Manually extract the phases data
-              const phasesMatch = responseContent.match(/"phases"\s*:\s*\[(.*)\]/);
-              if (phasesMatch && phasesMatch[1]) {
-                try {
-                  const manualJson = `{"phases":[${phasesMatch[1]}]}`;
-                  return JSON.parse(manualJson);
-                } catch (manualError) {
-                  console.log('Manual extraction failed');
-                }
-              }
-            }
-            
-            // If all parsing attempts fail, log the raw response and throw an error
-            console.error('All JSON parsing attempts failed');
-            console.log('Raw response content:', responseContent);
-            throw new Error('Failed to parse JSON response from Claude');
+            console.log('Direct parsing failed, trying to extract JSON block');
           }
+          
+          // Method 2: Extract JSON block between first { and last }
+          const firstBrace = responseContent.indexOf('{');
+          const lastBrace = responseContent.lastIndexOf('}');
+          
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            const jsonBlock = responseContent.substring(firstBrace, lastBrace + 1);
+            try {
+              const parsed = JSON.parse(jsonBlock);
+              console.log('JSON block extraction successful');
+              return parsed;
+            } catch (blockParseError) {
+              console.log('JSON block parsing failed');
+            }
+          }
+          
+          // Method 3: Try to clean the response and parse
+          try {
+            // Remove markdown code blocks if present
+            let cleaned = responseContent.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+            
+            // Find JSON object boundaries more carefully
+            const jsonStart = cleaned.indexOf('{');
+            const jsonEnd = cleaned.lastIndexOf('}');
+            
+            if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+              cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+              
+              // Clean up common issues
+              cleaned = cleaned
+                .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+                .replace(/\n\s*/g, ' ') // Replace newlines with spaces
+                .replace(/\r/g, '') // Remove carriage returns
+                .replace(/\t/g, ' ') // Replace tabs with spaces
+                .replace(/,\s*}/g, '}') // Remove trailing commas
+                .replace(/,\s*]/g, ']'); // Remove trailing commas in arrays
+              
+              const parsed = JSON.parse(cleaned);
+              console.log('Cleaned JSON parsing successful');
+              return parsed;
+            }
+          } catch (cleanParseError) {
+            console.log('Cleaned JSON parsing failed');
+          }
+          
+          // If all parsing fails, log and throw
+          console.error('All JSON parsing methods failed');
+          throw new Error('Failed to parse JSON response from Claude');
+          
         } catch (parseError) {
           console.error('Error parsing Claude JSON response:', parseError);
-          console.log('Raw response content:', responseContent);
-          
-          // Check if the raw response at least has phases structure we can use
-          // This is a last resort fallback
-          if (responseContent.includes('"phases"') && 
-              responseContent.includes('"Phase 1: Connect & Set the Stage"') &&
-              responseContent.includes('"Phase 2: Focus & Action"') &&
-              responseContent.includes('"Phase 3: Clarity & Closure"')) {
-            
-            console.log('Creating fallback structure from detected phases');
-            // Extract text items using regex
-            const phase1Items = AnthropicService.extractItems(responseContent, "Phase 1");
-            const phase2Items = AnthropicService.extractItems(responseContent, "Phase 2");
-            const phase3Items = AnthropicService.extractItems(responseContent, "Phase 3");
-            
-            return {
-              phases: [
-                {
-                  name: "Phase 1: Connect & Set the Stage",
-                  items: phase1Items.length > 0 ? phase1Items : [
-                    "Personal Check-in & Open",
-                    "Team Member's Top of Mind",
-                    "Quick Wins & Shout-outs"
-                  ]
-                },
-                {
-                  name: "Phase 2: Focus & Action",
-                  items: phase2Items.length > 0 ? phase2Items : [
-                    "Key Priorities & Progress Review",
-                    "Challenges, Support & Roadblocks",
-                    "Development & Growth"
-                  ]
-                },
-                {
-                  name: "Phase 3: Clarity & Closure",
-                  items: phase3Items.length > 0 ? phase3Items : [
-                    "Action Items & Next Steps",
-                    "Feedback Loop",
-                    "Forward Look & Closing"
-                  ]
-                }
-              ]
-            };
-          }
-          
-          throw new Error('Failed to parse JSON response from Claude');
+          throw parseError;
         }
       }
       
@@ -359,7 +321,9 @@ ${previousData.actionItems.map(item => `- ${item}`).join('\n')}
 
 Based on this data, please generate a personalized agenda for the upcoming 1:1 meeting with ${teamMemberName}. For each phase, create 3-4 specific talking points or questions that reference the previous meeting's data.
 
-Respond with a JSON object structured like this:
+IMPORTANT: Respond ONLY with a valid JSON object. Do not include any explanatory text, markdown formatting, or code blocks. Just the raw JSON.
+
+The JSON structure must be exactly:
 {
   "phases": [
     {
@@ -432,39 +396,5 @@ Respond with a JSON object structured like this:
     }
   }
 
-  /**
-   * Helper function to extract items from a particular phase
-   */
-  private static extractItems(text: string, phasePrefix: string): string[] {
-    const itemRegex = new RegExp(`"${phasePrefix}[^"]*"[^[]*\\[([^\\]]*)\\]`, 'i');
-    const match = text.match(itemRegex);
-    
-    if (match && match[1]) {
-      // Extract quoted strings
-      const itemsStr = match[1];
-      const items: string[] = [];
-      let inQuotes = false;
-      let currentItem = '';
-      
-      for (let i = 0; i < itemsStr.length; i++) {
-        const char = itemsStr[i];
-        if (char === '"') {
-          if (inQuotes) {
-            // End of item
-            if (currentItem.trim()) {
-              items.push(currentItem.trim());
-            }
-            currentItem = '';
-          }
-          inQuotes = !inQuotes;
-        } else if (inQuotes) {
-          currentItem += char;
-        }
-      }
-      
-      return items.filter(item => item.length > 0);
-    }
-    
-    return [];
-  }
+
 } 
