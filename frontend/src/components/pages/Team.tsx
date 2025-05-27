@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { userApi } from '../../utils/api';
-import { formatDistanceToNow } from 'date-fns';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { TrashSimple, Plus, MagnifyingGlass, CaretDown, Clock } from 'phosphor-react';
@@ -12,14 +11,16 @@ import type {
   InviteErrorResponse,
   InviteStatus 
 } from '../../interfaces';
+import { useApiState } from '../../hooks/useApiState';
+import { formatDate } from '../../utils/dateUtils';
+import StatusBadge from '../StatusBadge';
 
 const Team = () => {
   const { user, isSignedIn } = useUser();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [inviteStatus, setInviteStatus] = useState<InviteStatus | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<TeamInvitation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [{ loading, error }, { setLoading, setError }] = useApiState(true);
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -63,18 +64,10 @@ const Team = () => {
           // Ensure the user is registered with our backend
           try {
             // Register/get current user
-            console.log('Attempting to register user with Clerk ID:', user.id);
-            console.log('User email:', user.primaryEmailAddress?.emailAddress);
-            console.log('User role should be admin:', isAdmin);
-            
             const currentUser = await userApi.registerUser({
               email: user.primaryEmailAddress?.emailAddress || '',
               name: user.fullName
             });
-            
-            console.log('Registration response from backend:', currentUser);
-            console.log('Current user role:', currentUser?.role);
-            console.log('Is current user admin in DB:', currentUser?.role === 'admin');
             
             if (currentUser?.role === 'admin') {
               setIsAdmin(true);
@@ -99,7 +92,7 @@ const Team = () => {
                 setInviteStatus(status);
                 setPendingInvitations(invitations);
               } catch (adminError) {
-                console.error('Failed to fetch admin-specific data:', adminError);
+                // Failed to fetch admin-specific data
                 
                 // Fetch all users as fallback
                 const users = await userApi.getUsers();
@@ -125,7 +118,7 @@ const Team = () => {
               setTeamMembers(formattedUsers);
             }
           } catch (registrationError) {
-            console.error('Failed to register user with backend:', registrationError);
+            // Failed to register user with backend
             
             // Fallback to fetch all users even if registration fails
             const users = await userApi.getUsers();
@@ -151,7 +144,7 @@ const Team = () => {
         }
         
       } catch (err) {
-        console.error('Failed to fetch team data:', err);
+        // Failed to fetch team data
         setError('Failed to load team data. Please try again later.');
       } finally {
         setLoading(false);
@@ -161,15 +154,7 @@ const Team = () => {
     fetchData();
   }, [isSignedIn, user, isAdmin]);
 
-  // Helper function to format dates
-  const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      return formatDistanceToNow(date, { addSuffix: true });
-    } catch {
-      return dateString;
-    }
-  };
+  // formatDate function now imported from utils/dateUtils
   
   // Open delete confirmation modal
   const confirmDelete = (member: TeamMember) => {
@@ -204,7 +189,7 @@ const Team = () => {
       setIsDeleteModalOpen(false);
       setMemberToDelete(null);
     } catch (err) {
-      console.error('Failed to delete team member:', err);
+      // Failed to delete team member
       setError('Failed to remove team member. Please try again.');
     } finally {
       setIsDeleting(false);
@@ -238,9 +223,9 @@ const Team = () => {
       setIsInviteModalOpen(false);
       
       // Show success message (could use a toast notification here)
-      console.log(`Invitation sent to: ${inviteEmail}`);
+      // Invitation sent successfully
     } catch (err: unknown) {
-      console.error('Failed to send invitation:', err);
+      // Failed to send invitation
       // Extract error message from API response if available
       const errorMessage = err instanceof Error 
         ? err.message 
@@ -312,7 +297,7 @@ const Team = () => {
       setIsDeleteInviteModalOpen(false);
       setInviteToDelete(null);
     } catch (err) {
-      console.error('Failed to delete invitation:', err);
+      // Failed to delete invitation
       setError('Failed to cancel invitation. Please try again.');
     } finally {
       setIsDeletingInvite(false);
@@ -505,9 +490,10 @@ const Team = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                        {invitation.status.charAt(0).toUpperCase() + invitation.status.slice(1)}
-                      </span>
+                      <StatusBadge 
+                        status={invitation.status}
+                        className="px-2 text-xs leading-5 font-semibold"
+                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
                       {formatDate(invitation.createdAt)}
@@ -520,7 +506,7 @@ const Team = () => {
                         <button
                           onClick={() => {
                             // In a real app we'd create logic to resend here
-                            console.log(`Resend invitation to: ${invitation.email}`);
+                            // Resend invitation functionality would go here
                           }}
                           className="text-indigo-600 hover:text-indigo-900 mr-4"
                           title="Resend invitation"

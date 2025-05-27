@@ -5,27 +5,18 @@ import { analyzeMeetings } from '../../utils/anthropic';
 import type { TeamMember as TeamMemberType, KeyArea, Activity, AnalysisHistory, Meeting } from '../../interfaces';
 import { Dialog, Transition } from '@headlessui/react';
 import { Link } from 'react-router-dom';
+import { useApiState } from '../../hooks/useApiState';
+import { getValidDate, formatJoinDate } from '../../utils/dateUtils';
+import StatusBadge from '../StatusBadge';
 
-// Function to safely format dates and ensure they're not in the future
-const getValidDate = (dateString: string): Date => {
-  const parsedDate = new Date(dateString);
-  const now = new Date();
-  
-  // Check if date is valid and not in the future
-  if (isNaN(parsedDate.getTime()) || parsedDate > now) {
-    return now;
-  }
-  
-  return parsedDate;
-};
+// getValidDate function now imported from utils/dateUtils
 
 const TeamMember = () => {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState('details');
   const [teamMember, setTeamMember] = useState<TeamMemberType | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [{ loading, error }, { setLoading, setError }] = useApiState(true);
   const [analyzing, setAnalyzing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [analysisInfo, setAnalysisInfo] = useState<{
     cached: boolean;
     lastAnalyzedAt?: string;
@@ -177,7 +168,7 @@ const TeamMember = () => {
                 });
               }
             } catch (historyError) {
-              console.error('Error fetching analysis history:', historyError);
+              // Error fetching analysis history - continue with basic data
             }
             
             // Update team member with analysis results
@@ -185,14 +176,14 @@ const TeamMember = () => {
               if (!prev) return null;
               return {
                 ...prev,
-                bio: `${prev.name} is a ${prev.role} who joined the team on ${new Date(prev.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.`,
+                bio: `${prev.name} is a ${prev.role} who joined the team on ${formatJoinDate(prev.joinDate || '')}.`,
                 wins: analysis.wins,
                 areasForSupport: analysis.areasForSupport,
                 actionItems: analysis.actionItems
               };
             });
           } catch (analysisError) {
-            console.warn('Could not get pre-computed analysis, doing client-side analysis', analysisError);
+            // Could not get pre-computed analysis, trying client-side analysis
             
             // If API analysis fails, do client-side analysis with Anthropic
             try {
@@ -211,7 +202,7 @@ const TeamMember = () => {
                 };
               });
             } catch (clientAnalysisError) {
-              console.error('Client-side analysis failed:', clientAnalysisError);
+              // Client-side analysis failed - using fallback data
               // Just show basic info if all analysis methods fail
               setTeamMember(prev => {
                 if (!prev) return null;
@@ -226,7 +217,7 @@ const TeamMember = () => {
             }
           }
         } catch (meetingsError) {
-          console.error('Error fetching meetings:', meetingsError);
+          // Error fetching meetings - using fallback data
           setTeamMember(prev => {
             if (!prev) return null;
             return {
@@ -241,7 +232,7 @@ const TeamMember = () => {
           setAnalyzing(false);
         }
       } catch (userError) {
-        console.error('Error fetching user data:', userError);
+        // Error fetching user data
         setError('Failed to load team member data');
       } finally {
         setLoading(false);
@@ -258,7 +249,7 @@ const TeamMember = () => {
       const keyAreasData = await keyAreaApi.getKeyAreas(userId);
       setKeyAreas(keyAreasData);
     } catch (error) {
-      console.error('Error fetching key areas:', error);
+      // Error fetching key areas
     } finally {
       setKeyAreaLoading(false);
     }
@@ -294,7 +285,7 @@ const TeamMember = () => {
       // Switch to details tab to show the loaded analysis
       setActiveTab('details');
     } catch (error) {
-      console.error('Error loading historical analysis:', error);
+      // Error loading historical analysis
     } finally {
       setLoading(false);
     }
@@ -328,7 +319,7 @@ const TeamMember = () => {
         };
       });
     } catch (error) {
-      console.error('Error returning to current analysis:', error);
+      // Error returning to current analysis
     } finally {
       setLoading(false);
     }
@@ -345,7 +336,7 @@ const TeamMember = () => {
       await fetchKeyAreas(id);
       setKeyAreasChanged(true);
     } catch (error) {
-      console.error('Error adding key area:', error);
+      // Error adding key area
     } finally {
       setAddingKeyArea(false);
     }
@@ -362,7 +353,7 @@ const TeamMember = () => {
       setKeyAreaToDelete(null);
       setKeyAreasChanged(true);
     } catch (error) {
-      console.error('Error deleting key area:', error);
+      // Error deleting key area
     }
   };
   
@@ -391,7 +382,7 @@ const TeamMember = () => {
       await fetchKeyAreas(id);
       setKeyAreasChanged(true);
     } catch (error) {
-      console.error('Error updating key area:', error);
+      // Error updating key area
     }
   };
   
@@ -445,8 +436,8 @@ const TeamMember = () => {
             };
           });
         }
-      } catch (historyError) {
-        console.error('Error fetching updated analysis history:', historyError);
+              } catch (historyError) {
+          // Error fetching updated analysis history
       }
       
       // Update team member with fresh analysis results
@@ -469,7 +460,7 @@ const TeamMember = () => {
       // Switch to details tab to show new analysis
       setActiveTab('details');
     } catch (error) {
-      console.error('Error refreshing analysis:', error);
+      // Error refreshing analysis
     } finally {
       setRefreshAnalysisLoading(false);
     }
@@ -496,39 +487,7 @@ const TeamMember = () => {
       : <span className="ml-1">↓</span>;
   };
 
-  // Get status style based on meeting status
-  const getStatusStyle = (status: string, processingStatus?: string) => {
-    // If processing is pending or in progress, show a special status
-    if (processingStatus === 'pending' || processingStatus === 'processing') {
-      return 'bg-yellow-100 text-yellow-800';
-    }
-    
-    switch (status) {
-      case 'scheduled':
-        return 'bg-blue-100 text-blue-800';
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'cancelled':
-        return 'bg-gray-100 text-gray-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // Get display text for status
-  const getStatusText = (status: string, processingStatus?: string) => {
-    if (status === 'completed') {
-      if (processingStatus === 'pending') {
-        return 'Processing Pending';
-      } else if (processingStatus === 'processing') {
-        return 'Processing';
-      } else if (processingStatus === 'failed') {
-        return 'Processing Failed';
-      }
-    }
-    
-    return status.charAt(0).toUpperCase() + status.slice(1);
-  };
+  // Status functions now handled by StatusBadge component
 
   // Show loading state
   if (loading) {
@@ -560,7 +519,7 @@ const TeamMember = () => {
           {teamMember.role} • {teamMember.department} • {teamMember.email}
         </div>
         <div className="mt-2 text-sm text-gray-500">
-          Team member since {new Date(teamMember.joinDate || '').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          Team member since {formatJoinDate(teamMember.joinDate || '')}
         </div>
       </div>
       
@@ -821,9 +780,10 @@ const TeamMember = () => {
                             {meeting.duration} mins
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusStyle(meeting.status, meeting.processingStatus)}`}>
-                              {getStatusText(meeting.status, meeting.processingStatus)}
-                            </span>
+                            <StatusBadge 
+                              status={meeting.status} 
+                              processingStatus={meeting.processingStatus} 
+                            />
                           </td>
                         </tr>
                       ))}

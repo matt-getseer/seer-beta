@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X } from 'phosphor-react';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
+import { useApiState } from '../hooks/useApiState';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
@@ -30,8 +31,7 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [duration, setDuration] = useState('60');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [{ loading, error }, { setLoading, setError }] = useApiState(false);
   const [teamMembers, setTeamMembers] = useState<Team[]>([]);
   const { getToken } = useAuth();
 
@@ -62,7 +62,7 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
         
         setTeamMembers(filteredTeamMembers);
       } catch (error) {
-        console.error('Error fetching data:', error);
+        // Error fetching data
         setError('Failed to load team members');
       }
     };
@@ -109,7 +109,7 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
       setTime('');
       setDuration('60');
     } catch (error) {
-      console.error('Error creating meeting:', error);
+      // Error creating meeting
       setLoading(false);
       
       // Handle detailed error messages from API

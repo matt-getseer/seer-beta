@@ -5,6 +5,9 @@ import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
 import NewMeetingModal from '../NewMeetingModal';
 import type { TeamMember } from '../../interfaces';
+import { useApiState } from '../../hooks/useApiState';
+import { formatMeetingDate, formatDuration } from '../../utils/dateUtils';
+import StatusBadge from '../StatusBadge';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
@@ -32,8 +35,7 @@ interface Meeting {
 
 const Meetings = () => {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [{ loading, error }, { setLoading, setError }] = useApiState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
@@ -57,7 +59,7 @@ const Meetings = () => {
       
       setIsAdmin(response.data.role === 'admin');
     } catch (error) {
-      console.error('Error fetching current user:', error);
+              // Error fetching current user
     }
   }, [getToken]);
   
@@ -94,30 +96,16 @@ const Meetings = () => {
           teamMember: teamMembersMap.get(meeting.teamMemberId) || 'Unknown',
           rawDate, // Store raw date for sorting
           // Format date for display
-          date: rawDate.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-          }).replace(/(\d+)(?=(,))/, function(match) {
-            // Add ordinal suffix (st, nd, rd, th)
-            const day = parseInt(match);
-            if (day > 3 && day < 21) return day + 'th'; // 4th through 20th
-            switch (day % 10) {
-              case 1: return day + 'st';
-              case 2: return day + 'nd';
-              case 3: return day + 'rd';
-              default: return day + 'th';
-            }
-          }),
+          date: formatMeetingDate(meeting.date),
           // Format duration for display
-          duration: `${meeting.duration} min${meeting.duration !== 1 ? 's' : ''}`
+          duration: formatDuration(meeting.duration)
         }
       });
       
       setMeetings(meetingsWithNames);
       setError(null);
     } catch (error) {
-      console.error('Error fetching meetings:', error);
+      // Error fetching meetings
       setError('Failed to load meetings');
     } finally {
       setLoading(false);
@@ -192,39 +180,7 @@ const Meetings = () => {
     currentPage * itemsPerPage
   );
 
-  // Get status style based on meeting status
-  const getStatusStyle = (status: string, processingStatus?: string) => {
-    // If processing is pending or in progress, show a special status
-    if (processingStatus === 'pending' || processingStatus === 'processing') {
-      return 'bg-yellow-100 text-yellow-800';
-    }
-    
-    switch (status) {
-      case 'scheduled':
-        return 'bg-blue-100 text-blue-800';
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'cancelled':
-        return 'bg-gray-100 text-gray-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-  
-  // Get display text for status
-  const getStatusText = (status: string, processingStatus?: string) => {
-    if (status === 'completed') {
-      if (processingStatus === 'pending') {
-        return 'Processing Pending';
-      } else if (processingStatus === 'processing') {
-        return 'Processing';
-      } else if (processingStatus === 'failed') {
-        return 'Processing Failed';
-      }
-    }
-    
-    return status.charAt(0).toUpperCase() + status.slice(1);
-  };
+    // Status functions now handled by StatusBadge component
 
   // Handle new meeting created
   const handleMeetingCreated = () => {
@@ -407,9 +363,10 @@ const Meetings = () => {
                         {meeting.duration}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusStyle(meeting.status, meeting.processingStatus)}`}>
-                          {getStatusText(meeting.status, meeting.processingStatus)}
-                        </span>
+                        <StatusBadge 
+                          status={meeting.status} 
+                          processingStatus={meeting.processingStatus} 
+                        />
                       </td>
                     </tr>
                   ))}

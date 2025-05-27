@@ -126,7 +126,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, transcript }) => {
           <h3 className="text-lg font-medium text-gray-900 mb-2">Speaker Timeline</h3>
           <SpeakerTimeline 
             speakers={speakers}
-            currentTime={currentTime}
             totalDuration={duration}
             onSeek={handleSeek}
           />

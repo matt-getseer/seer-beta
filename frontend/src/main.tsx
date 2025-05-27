@@ -3,6 +3,10 @@ import { createRoot } from 'react-dom/client'
 import { ClerkProvider } from '@clerk/clerk-react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 
+// Initialize Sentry before anything else
+import { initSentry } from './utils/sentry'
+initSentry()
+
 // Import CSS - make sure Tailwind is imported properly
 import './output.css'
 import App from './App.tsx'

@@ -1,3 +1,6 @@
+import { logger } from './logger';
+import { trackApiCall } from './sentry';
+
 // Base API URL - adjust this based on your environment configuration
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -41,13 +44,16 @@ declare global {
   }
 }
 
-// Generic fetch wrapper with error handling
+// Generic fetch wrapper with error handling and performance monitoring
 async function fetchApi<T>(
   endpoint: string, 
   options: RequestInit = {}
 ): Promise<T> {
-  try {
-    const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${API_BASE_URL}${endpoint}`;
+  const method = options.method || 'GET';
+  
+  // Wrap the API call with Sentry performance monitoring
+  return trackApiCall(endpoint, async () => {
     const defaultHeaders = {
       'Content-Type': 'application/json',
     };
@@ -62,7 +68,7 @@ async function fetchApi<T>(
         };
       }
     } catch (e) {
-      console.warn('Failed to get auth token', e);
+      logger.warn('Failed to get auth token', { error: e });
     }
 
     const response = await fetch(url, {
@@ -75,10 +81,7 @@ async function fetchApi<T>(
     });
 
     return handleResponse<T>(response);
-  } catch (error) {
-    console.error('API request failed:', error);
-    throw error;
-  }
+  }, { method, url });
 }
 
 // User API interfaces

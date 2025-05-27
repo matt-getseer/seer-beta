@@ -33,7 +33,7 @@ const AuthCallback = () => {
           name: fullName || null
         });
         
-        console.log('User registered successfully');
+        // User registered successfully
         
         // Check for invitation token in sessionStorage first, then URL
         let invitationToken = sessionStorage.getItem('invitationToken');
@@ -52,7 +52,7 @@ const AuthCallback = () => {
           navigate('/');
         }
       } catch (err) {
-        console.error('Failed to register user:', err);
+        // Failed to register user
         setError('Failed to complete registration. Please try again.');
       } finally {
         setIsRegistering(false);
@@ -62,24 +62,24 @@ const AuthCallback = () => {
     const processInvitation = async (token: string) => {
       try {
         setIsProcessingInvite(true);
-        console.log('Processing invitation token:', token);
+        // Processing invitation token
         
         // Check if user exists and has an ID
         if (!user || !user.id) {
           throw new Error('User information is not available');
         }
         
-        console.log('Accepting invitation with Clerk ID:', user.id);
+        // Accepting invitation with Clerk ID
         
         // Accept the invitation
-        const response = await userApi.acceptInvitation(token, user.id);
+        await userApi.acceptInvitation(token, user.id);
         
-        console.log('Invitation accepted successfully:', response);
+        // Invitation accepted successfully
         
         // Redirect to the team page
         navigate('/team');
       } catch (err) {
-        console.error('Failed to process invitation:', err);
+        // Failed to process invitation
         setError('Failed to accept the team invitation. It may be expired or invalid.');
       } finally {
         setIsProcessingInvite(false);

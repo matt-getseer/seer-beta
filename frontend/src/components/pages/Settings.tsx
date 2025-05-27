@@ -32,24 +32,24 @@ const Settings = () => {
       try {
         setLoading(true);
         const token = await getToken();
-        console.log('Checking Google connection status...');
+        // Checking Google connection status
         const response = await axios.get(`${API_URL}/api/auth/google/status`, {
           headers: {
             Authorization: `Bearer ${token}`
           },
           withCredentials: true // Include cookies
         });
-        console.log('Google connection response:', response.data);
+        // Google connection response received
         
         // Force the state to update based on API response
         if (response.data && typeof response.data.connected === 'boolean') {
           setGoogleConnected(response.data.connected);
-          console.log('Setting Google connected to:', response.data.connected);
+          // Setting Google connection status
         } else {
-          console.warn('Unexpected API response format:', response.data);
+          // Unexpected API response format
         }
       } catch (error) {
-        console.error('Error checking Google connection from database:', error);
+        // Error checking Google connection from database
       } finally {
         setLoading(false);
       }
@@ -76,7 +76,7 @@ const Settings = () => {
           // We don't retrieve API keys for security reasons, only the status
         }
       } catch (error) {
-        console.error('Error fetching AI settings:', error);
+        // Error fetching AI settings
       } finally {
         setAiLoading(false);
       }
@@ -87,7 +87,7 @@ const Settings = () => {
 
   // Function to manually refresh connection status
   const refreshConnectionStatus = () => {
-    console.log('Manually refreshing connection status...');
+    // Manually refreshing connection status
     setRefreshTrigger(prev => prev + 1);
   };
 
@@ -110,11 +110,11 @@ const Settings = () => {
         if (response.data.authUrl) {
           window.location.href = response.data.authUrl;
         } else {
-          console.error('No auth URL returned from server');
+          // No auth URL returned from server
           setLoading(false);
         }
       } catch (error) {
-        console.error('Error starting Google auth flow:', error);
+        // Error starting Google auth flow
         setLoading(false);
       }
     }
@@ -132,7 +132,7 @@ const Settings = () => {
       });
       setGoogleConnected(false);
     } catch (error) {
-      console.error('Error disconnecting Google account:', error);
+      // Error disconnecting Google account
     } finally {
       setLoading(false);
       setShowDisconnectDialog(false);
@@ -160,7 +160,7 @@ const Settings = () => {
       setAnthropicApiKey('');
       setOpenaiApiKey('');
     } catch (error) {
-      console.error('Error disconnecting AI provider:', error);
+      // Error disconnecting AI provider
     } finally {
       setAiLoading(false);
       setShowAIDisconnectDialog(false);
@@ -198,7 +198,7 @@ const Settings = () => {
         setAiSaveSuccess(false);
       }, 3000);
     } catch (error) {
-      console.error('Error saving AI settings:', error);
+      // Error saving AI settings
       setAiSaveError('Failed to save AI settings. Please try again.');
     } finally {
       setIsSavingAI(false);

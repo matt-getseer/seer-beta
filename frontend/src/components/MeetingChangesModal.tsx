@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { X } from 'phosphor-react';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
-import { format } from 'date-fns';
+import { useApiState } from '../hooks/useApiState';
+import { formatChangeDate, formatChangeDuration } from '../utils/dateUtils';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
@@ -30,8 +31,7 @@ interface MeetingChangesModalProps {
 
 const MeetingChangesModal = ({ isOpen, onClose, meetingId }: MeetingChangesModalProps) => {
   const [changes, setChanges] = useState<MeetingChange[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [{ loading, error }, { setLoading, setError }] = useApiState(true);
   const { getToken } = useAuth();
 
   useEffect(() => {
@@ -52,7 +52,7 @@ const MeetingChangesModal = ({ isOpen, onClose, meetingId }: MeetingChangesModal
         
         setChanges(response.data);
       } catch (error) {
-        console.error('Error fetching meeting changes:', error);
+        // Error fetching meeting changes
         setError('Failed to load meeting changes. Please try again.');
       } finally {
         setLoading(false);
@@ -80,19 +80,7 @@ const MeetingChangesModal = ({ isOpen, onClose, meetingId }: MeetingChangesModal
     }
   };
 
-  // Helper function to format dates
-  const formatDate = (date: string | Date | null) => {
-    if (!date) return 'N/A';
-    
-    const dateObj = typeof date === 'string' ? new Date(date) : date;
-    return format(dateObj, 'MMM d, yyyy h:mm a');
-  };
-
-  // Helper function to format duration
-  const formatDuration = (minutes: number | null) => {
-    if (minutes === null) return 'N/A';
-    return `${minutes} min${minutes !== 1 ? 's' : ''}`;
-  };
+  // Helper functions now imported from utils
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -137,7 +125,7 @@ const MeetingChangesModal = ({ isOpen, onClose, meetingId }: MeetingChangesModal
                       </span>
                     </div>
                     <div className="text-sm text-gray-500">
-                      {formatDate(change.createdAt)}
+                      {formatChangeDate(change.createdAt)}
                     </div>
                   </div>
                   
@@ -165,13 +153,13 @@ const MeetingChangesModal = ({ isOpen, onClose, meetingId }: MeetingChangesModal
                       {change.previousDate && (
                         <div className="text-sm">
                           <span className="text-gray-500">Previous: </span>
-                          <span className="text-red-500 line-through">{formatDate(change.previousDate)}</span>
+                          <span className="text-red-500 line-through">{formatChangeDate(change.previousDate)}</span>
                         </div>
                       )}
                       {change.newDate && (
                         <div className="text-sm">
                           <span className="text-gray-500">New: </span>
-                          <span className="text-green-500">{formatDate(change.newDate)}</span>
+                          <span className="text-green-500">{formatChangeDate(change.newDate)}</span>
                         </div>
                       )}
                     </div>
@@ -183,13 +171,13 @@ const MeetingChangesModal = ({ isOpen, onClose, meetingId }: MeetingChangesModal
                       {change.previousDuration && (
                         <div className="text-sm">
                           <span className="text-gray-500">Previous: </span>
-                          <span className="text-red-500 line-through">{formatDuration(change.previousDuration)}</span>
+                          <span className="text-red-500 line-through">{formatChangeDuration(change.previousDuration)}</span>
                         </div>
                       )}
                       {change.newDuration && (
                         <div className="text-sm">
                           <span className="text-gray-500">New: </span>
-                          <span className="text-green-500">{formatDuration(change.newDuration)}</span>
+                          <span className="text-green-500">{formatChangeDuration(change.newDuration)}</span>
                         </div>
                       )}
                     </div>

@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, VideoCamera, Check, Clock, ArrowClockwise } from 'phosphor-react';
+import { ArrowLeft, VideoCamera, Check, Clock } from 'phosphor-react';
 import { useAuth } from '@clerk/clerk-react';
 import VideoPlayer from '../VideoPlayer';
 import ActionItemSidebar from '../ActionItemSidebar';
 import MeetingChangesModal from '../MeetingChangesModal';
 import type { TeamMember, ActionItem } from '../../interfaces';
 import { meetingApi } from '../../utils/api';
+import { useApiState } from '../../hooks/useApiState';
+import { formatMeetingDateTime, formatDuration } from '../../utils/dateUtils';
+import StatusBadge from '../StatusBadge';
+import { getAssignmentBadgeClass } from '../../utils/statusUtils';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
@@ -37,8 +41,7 @@ const MeetingOverview = () => {
   const teamMemberId = location.state?.teamMemberId;
   const [activeTab, setActiveTab] = useState('details');
   const [meeting, setMeeting] = useState<Meeting | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [{ loading, error }, { setLoading, setError }] = useApiState(true);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [selectedActionItem, setSelectedActionItem] = useState<ActionItem | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -112,21 +115,14 @@ const MeetingOverview = () => {
           ...response.data,
           actionItems: processedActionItems,
           teamMember: teamMembersMap.get(response.data.teamMemberId) || 'Unknown',
-          date: new Date(response.data.date).toLocaleString('en-US', {
-            year: 'numeric',
-            month: 'numeric',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: 'numeric',
-            hour12: true
-          }),
-          duration: `${response.data.duration} min${response.data.duration !== 1 ? 's' : ''}`
+          date: formatMeetingDateTime(response.data.date),
+          duration: formatDuration(response.data.duration)
         };
         
         setMeeting(meetingData);
         setError(null);
       } catch (error) {
-        console.error('Error fetching meeting:', error);
+        // Error fetching meeting
         setError('Failed to load meeting details');
       } finally {
         setLoading(false);
@@ -149,7 +145,7 @@ const MeetingOverview = () => {
           const agendaData = await meetingApi.generateAgenda(id);
           setAgenda(agendaData);
         } catch (error) {
-          console.error('Error fetching agenda:', error);
+          // Error fetching agenda
           setAgendaError('Failed to generate agenda. Please try again.');
         } finally {
           setLoadingAgenda(false);
@@ -236,7 +232,7 @@ const MeetingOverview = () => {
         }
       }
     } catch (error) {
-      console.error('Error updating action item status:', error);
+      // Error updating action item status
       // Show error message to user
       alert('Error updating action item status. Please try again.');
     }
@@ -324,7 +320,7 @@ const MeetingOverview = () => {
         }
       }
     } catch (error) {
-      console.error('Error updating action item assignment:', error);
+      // Error updating action item assignment
       // Show error message to user
       alert('Error updating assignment. Please try again.');
     }
@@ -349,39 +345,7 @@ const MeetingOverview = () => {
     }, 300);
   };
   
-  // Get status style based on meeting status
-  const getStatusStyle = (status: string, processingStatus?: string) => {
-    // If processing is pending or in progress, show a special status
-    if (processingStatus === 'pending' || processingStatus === 'processing') {
-      return 'bg-yellow-100 text-yellow-800';
-    }
-    
-    switch (status) {
-      case 'scheduled':
-        return 'bg-blue-100 text-blue-800';
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'cancelled':
-        return 'bg-gray-100 text-gray-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-  
-  // Get display text for status
-  const getStatusText = (status: string, processingStatus?: string) => {
-    if (status === 'completed') {
-      if (processingStatus === 'pending') {
-        return 'Processing Pending';
-      } else if (processingStatus === 'processing') {
-        return 'Processing';
-      } else if (processingStatus === 'failed') {
-        return 'Processing Failed';
-      }
-    }
-    
-    return status.charAt(0).toUpperCase() + status.slice(1);
-  };
+  // Status functions now handled by StatusBadge component
   
   return (
     <div className="relative">
@@ -443,11 +407,10 @@ const MeetingOverview = () => {
             </div>
             
             <div className="mt-2 flex items-center">
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                getStatusStyle(meeting.status, meeting.processingStatus)
-              }`}>
-                {getStatusText(meeting.status, meeting.processingStatus)}
-              </span>
+              <StatusBadge 
+                status={meeting.status} 
+                processingStatus={meeting.processingStatus} 
+              />
             </div>
           </div>
 
@@ -600,15 +563,9 @@ const MeetingOverview = () => {
                                   {item.text}
                                 </span>
                                 <div className="mt-1">
-                                  {item.assigneeName ? (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                      {item.assigneeName}
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                                      Unassigned
-                                    </span>
-                                  )}
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getAssignmentBadgeClass(!!item.assigneeName)}`}>
+                                    {item.assigneeName || 'Unassigned'}
+                                  </span>
                                 </div>
                               </div>
                             </li>
