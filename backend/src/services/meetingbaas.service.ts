@@ -17,7 +17,7 @@ const GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'primary';
 interface MeetingBaasResponse {
   id: string;
   googleMeetLink: string;
-  status: string;
+  status: string; // "scheduled", "joining", "in_progress", "completed", "failed"
 }
 
 interface NLPResult {
@@ -46,21 +46,33 @@ export class MeetingBaasService {
       // First, create a Google Meet using Google Calendar API
       const googleMeetLink = await this.createGoogleMeet(meetingData);
       
-      // Then, send a bot to the meeting
+      // For all scheduled meetings, use reserved: true and start_time
+      // The bot will be reserved and join 4 minutes before the start_time
+      const meetingStartTime = new Date(meetingData.scheduledTime);
+      
+      const botPayload = {
+        meeting_url: googleMeetLink,
+        bot_name: "AI Notetaker",
+        recording_mode: "gallery_view",
+        reserved: true, // Always true for scheduled meetings
+        start_time: Math.floor(meetingStartTime.getTime() / 1000), // Unix timestamp in seconds (not milliseconds)
+        entry_message: "Hi everyone! I'm Seer, I'll be taking notes and will provide a summary after the meeting.",
+        speech_to_text: {
+          provider: "Default"
+        },
+        automatic_leave: {
+          waiting_room_timeout: 600
+        }
+      };
+      
+      console.log(`Scheduling bot for meeting at ${meetingStartTime.toISOString()}`);
+      console.log(`Bot will be reserved and join 4 minutes before: ${new Date(meetingStartTime.getTime() - 4 * 60 * 1000).toISOString()}`);
+      console.log('Bot payload:', JSON.stringify(botPayload, null, 2));
+      
+      // Send bot to the meeting
       const response = await axios.post(
         `${MEETINGBAAS_API_URL}/bots`,
-        {
-          meeting_url: googleMeetLink,
-          bot_name: "AI Notetaker",
-          recording_mode: "speaker_view",
-          reserved: false, // Set to true for scheduled meetings
-          speech_to_text: {
-            provider: "Default"
-          },
-          automatic_leave: {
-            waiting_room_timeout: 600
-          }
-        },
+        botPayload,
         {
           headers: {
             'x-meeting-baas-api-key': MEETINGBAAS_API_KEY,
@@ -69,6 +81,8 @@ export class MeetingBaasService {
         }
       );
 
+      console.log(`MeetingBaas bot scheduled successfully. Bot ID: ${response.data.bot_id}`);
+
       return {
         id: response.data.bot_id.toString(),
         googleMeetLink,
@@ -76,6 +90,19 @@ export class MeetingBaasService {
       };
     } catch (error) {
       console.error('Error creating meeting with MeetingBaas:', error);
+      
+      // Log detailed error information for debugging
+      if (axios.isAxiosError(error)) {
+        console.error('MeetingBaas API Error Details:');
+        console.error('Status:', error.response?.status);
+        console.error('Status Text:', error.response?.statusText);
+        console.error('Response Data:', JSON.stringify(error.response?.data, null, 2));
+        console.error('Request URL:', error.config?.url);
+        console.error('Request Method:', error.config?.method);
+        console.error('Request Headers:', JSON.stringify(error.config?.headers, null, 2));
+        console.error('Request Data:', JSON.stringify(error.config?.data, null, 2));
+      }
+      
       throw new Error('Failed to create meeting with MeetingBaas');
     }
   }
