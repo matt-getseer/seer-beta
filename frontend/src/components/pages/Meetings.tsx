@@ -69,31 +69,20 @@ const Meetings = () => {
     try {
       const token = await getToken();
       
-      const response = await axios.get(`${API_URL}/api/meetings`, {
+      // Use the optimized endpoint that includes team member information
+      const response = await axios.get(`${API_URL}/api/meetings/with-team-members`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
       
-      // Get team members to display names
-      const teamResponse = await axios.get(`${API_URL}/api/users/team`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      const teamMembersMap = new Map();
-      teamResponse.data.forEach((member: TeamMember) => {
-        teamMembersMap.set(member.id, member.name);
-      });
-      
-      // Add team member names to meetings
-      const meetingsWithNames = response.data.map((meeting: Meeting) => {
+      // Process meetings - team member info is already included
+      const meetingsWithNames = response.data.map((meeting: any) => {
         const rawDate = new Date(meeting.date);
         
         return {
           ...meeting,
-          teamMember: teamMembersMap.get(meeting.teamMemberId) || 'Unknown',
+          teamMember: meeting.teamMember?.name || 'Unknown',
           rawDate, // Store raw date for sorting
           // Format date for display
           date: formatMeetingDate(meeting.date),

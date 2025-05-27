@@ -10,87 +10,156 @@ dotenv.config();
 
 export class MeetingController {
   /**
+   * Get all meetings for the current user with team member information
+   * Optimized version that includes team member names in a single query
+   */
+  static async getMeetingsWithTeamMembers(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      const userRole = req.user?.role;
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
+      
+      console.log(`Getting meetings with team members for user: ${userId}, role: ${userRole}`);
+      
+      let meetings;
+      
+      if (userRole === 'admin') {
+        // For admins, get all meetings with both creator and team member info
+        meetings = await withRetry(() => prisma.meeting.findMany({
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          },
+          orderBy: {
+            date: 'desc'
+          }
+        }));
+      } else {
+        // For regular users, get meetings they created or are team members of
+        meetings = await withRetry(() => prisma.meeting.findMany({
+          where: {
+            OR: [
+              { createdBy: userId },
+              { teamMemberId: userId }
+            ]
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          },
+          orderBy: {
+            date: 'desc'
+          }
+        }));
+      }
+      
+      // Get team member information for all unique team member IDs
+      const teamMemberIds = [...new Set(meetings.map(m => m.teamMemberId))];
+      const teamMembers = await withRetry(() => prisma.user.findMany({
+        where: {
+          id: {
+            in: teamMemberIds
+          }
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      }));
+      
+      // Create a map for quick lookup
+      const teamMemberMap = new Map(teamMembers.map(tm => [tm.id, tm]));
+      
+      // Enhance meetings with team member information
+      const enhancedMeetings = meetings.map(meeting => ({
+        ...meeting,
+        teamMember: teamMemberMap.get(meeting.teamMemberId)
+      }));
+      
+      console.log(`Found ${enhancedMeetings.length} meetings with team member info`);
+      
+      return res.status(200).json(enhancedMeetings);
+    } catch (error) {
+      console.error('Error getting meetings with team members:', error);
+      return res.status(500).json({ 
+        error: 'Failed to get meetings with team members',
+        details: formatDbError(error)
+      });
+    }
+  }
+
+  /**
    * Get all meetings for the current user
    */
   static async getMeetings(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
       const userRole = req.user?.role;
-      const userEmail = req.user?.email;
       
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
       }
       
-      console.log(`Getting meetings for user: ${userId}, email: ${userEmail}, role: ${userRole}`);
-      
-      // For debugging, let's get all meetings to see what's available
-      const allMeetings = await withRetry(() => prisma.meeting.findMany());
-      console.log(`Total meetings in system: ${allMeetings.length}`);
-      
-      // For debugging - log team members
-      for (const meeting of allMeetings) {
-        console.log(`Meeting ${meeting.id}: title=${meeting.title}, teamMemberId=${meeting.teamMemberId}, createdBy=${meeting.createdBy}`);
-      }
-      
-      // Also get all users to debug ID matching
-      const allUsers = await withRetry(() => prisma.user.findMany({
-        select: {
-          id: true,
-          email: true,
-          role: true
-        }
-      }));
-      console.log('All users:', JSON.stringify(allUsers, null, 2));
+      console.log(`Getting meetings for user: ${userId}, role: ${userRole}`);
       
       let meetings;
       
-      // If user is admin, show all meetings
+      // Optimized query with proper joins and filtering
       if (userRole === 'admin') {
+        // For admins, get all meetings with user information in a single query
         meetings = await withRetry(() => prisma.meeting.findMany({
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          },
           orderBy: {
             date: 'desc'
           }
         }));
-        console.log(`Found ${meetings.length} meetings for admin user`);
       } else {
-        // For regular users
-        // First, find meetings the user created
-        const createdMeetings = await withRetry(() => prisma.meeting.findMany({
+        // For regular users, get meetings they created or are team members of
+        meetings = await withRetry(() => prisma.meeting.findMany({
           where: {
-            createdBy: userId
+            OR: [
+              { createdBy: userId },
+              { teamMemberId: userId }
+            ]
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          },
+          orderBy: {
+            date: 'desc'
           }
         }));
-        console.log(`Found ${createdMeetings.length} meetings created by the user`);
-        
-        // Then, find meetings where the user is the team member
-        const invitedToMeetings = await withRetry(() => prisma.meeting.findMany({
-          where: {
-            teamMemberId: userId
-          }
-        }));
-        console.log(`Found ${invitedToMeetings.length} meetings where user is teamMember`);
-        
-        // Combine the results, removing duplicates
-        const meetingsMap = new Map();
-        
-        // Add created meetings
-        createdMeetings.forEach(meeting => {
-          meetingsMap.set(meeting.id, meeting);
-        });
-        
-        // Add invited meetings
-        invitedToMeetings.forEach(meeting => {
-          meetingsMap.set(meeting.id, meeting);
-        });
-        
-        // Convert back to array and sort
-        meetings = Array.from(meetingsMap.values()).sort((a, b) => {
-          return new Date(b.date).getTime() - new Date(a.date).getTime();
-        });
-        
-        console.log(`Returning ${meetings.length} total meetings for the user`);
       }
+      
+      console.log(`Found ${meetings.length} meetings for user`);
       
       return res.status(200).json(meetings);
     } catch (error) {

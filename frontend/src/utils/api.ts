@@ -272,6 +272,11 @@ export const userApi = {
 
 // Meeting API functions
 export const meetingApi = {
+  // Get all meetings with team member information (optimized)
+  getMeetingsWithTeamMembers: async (): Promise<Meeting[]> => {
+    return fetchApi<Meeting[]>('/api/meetings/with-team-members');
+  },
+  
   // Get all meetings
   getMeetings: async (): Promise<Meeting[]> => {
     return fetchApi<Meeting[]>('/api/meetings');

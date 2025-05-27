@@ -17,6 +17,9 @@ router.use((req, res, next) => {
 });
 
 // Read operations - accessible to all authenticated users
+// Get all meetings with team member information (optimized)
+router.get('/with-team-members', requireAuth, MeetingController.getMeetingsWithTeamMembers);
+
 // Get all meetings
 router.get('/', requireAuth, MeetingController.getMeetings);
 

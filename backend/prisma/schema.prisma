@@ -55,6 +55,11 @@ model User {
   
   // Analysis history relationship
   analysisHistory   AnalysisHistory[] @relation("UserAnalysisHistory")
+  
+  // Performance indexes for team queries
+  @@index([adminId])
+  @@index([role])
+  @@index([adminId, role])
 }
 
 model UserAnalysis {
@@ -133,6 +138,15 @@ model Meeting {
   // Relations
   createdBy         String    // User id who created this meeting
   user              User      @relation("UserMeetings", fields: [createdBy], references: [id], onDelete: Cascade)
+  
+  // Performance indexes for common queries
+  @@index([teamMemberId])
+  @@index([createdBy])
+  @@index([date])
+  @@index([status])
+  @@index([teamMemberId, date])
+  @@index([createdBy, date])
+  @@index([status, date])
 }
 
 // Model to track calendar changes to meetings

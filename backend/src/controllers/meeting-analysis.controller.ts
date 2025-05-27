@@ -24,10 +24,15 @@ export class MeetingAnalysisController {
       
       console.log(`Getting meetings for team member: ${teamMemberId} by user: ${userId}, role: ${userRole}`);
       
-      // First check if team member exists
+      // First check if team member exists (optimized query)
       const teamMember = await prisma.user.findUnique({
         where: {
-          id: teamMemberId // ID is a string in the schema
+          id: teamMemberId
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true
         }
       });
       
@@ -35,10 +40,10 @@ export class MeetingAnalysisController {
         return res.status(404).json({ error: 'Team member not found' });
       }
       
-      // Get all meetings for this team member
+      // Get all meetings for this team member (will use teamMemberId index)
       const meetings = await prisma.meeting.findMany({
         where: {
-          teamMemberId: teamMemberId // ID is a string in the schema
+          teamMemberId: teamMemberId
         },
         orderBy: {
           date: 'desc'

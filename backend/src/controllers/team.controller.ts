@@ -13,8 +13,21 @@ export class TeamController {
     try {
       const adminId = req.user?.id;
       
+      // Use indexed query with selected fields for better performance
       const teamMembers = await prisma.user.findMany({
-        where: { adminId }
+        where: { adminId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          createdAt: true,
+          updatedAt: true,
+          lastAnalyzedAt: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
       });
       
       res.json(teamMembers);
@@ -378,9 +391,32 @@ export class TeamController {
         return res.status(401).json({ error: 'User not authenticated' });
       }
       
-      // Get user role
+      // Get user role and team members in a single optimized query
       const currentUser = await prisma.user.findUnique({
-        where: { id: userId }
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          adminId: true,
+          // Include team members if user is admin
+          teamMembers: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          // Include admin if user is not admin
+          admin: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          }
+        }
       });
       
       if (!currentUser) {
@@ -392,35 +428,32 @@ export class TeamController {
       let teamMembers = [];
       
       if (currentUser.role === 'admin') {
-        // For admins, get their team members
-        teamMembers = await prisma.user.findMany({
-          where: { 
-            OR: [
-              { adminId: userId },
-              { id: userId } // Include the admin themselves
-            ]
+        // For admins, include themselves and their team members
+        teamMembers = [
+          {
+            id: currentUser.id,
+            name: currentUser.name,
+            email: currentUser.email
           },
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        });
+          ...currentUser.teamMembers
+        ];
       } else {
-        // For regular users, just return themselves and their admin
-        teamMembers = await prisma.user.findMany({
-          where: {
-            OR: [
-              { id: userId },
-              { id: currentUser.adminId || '' } // Include their admin if they have one
-            ]
-          },
-          select: {
-            id: true,
-            name: true,
-            email: true
+        // For regular users, include themselves and their admin (if they have one)
+        teamMembers = [
+          {
+            id: currentUser.id,
+            name: currentUser.name,
+            email: currentUser.email
           }
-        });
+        ];
+        
+        if (currentUser.admin) {
+          teamMembers.push({
+            id: currentUser.admin.id,
+            name: currentUser.admin.name,
+            email: currentUser.admin.email
+          });
+        }
       }
       
       console.log(`Found ${teamMembers.length} team members`);
