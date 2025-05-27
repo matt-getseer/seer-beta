@@ -443,7 +443,21 @@ export class MeetingController {
         return res.status(404).json({ error: 'Meeting not found' });
       }
       
-      // Delete meeting
+      // Remove bot and calendar event if they exist
+      if (existingMeeting.meetingBaasId && existingMeeting.googleMeetLink) {
+        try {
+          await MeetingBaasService.removeMeeting({
+            meetingBaasId: existingMeeting.meetingBaasId,
+            googleMeetLink: existingMeeting.googleMeetLink,
+            userId: existingMeeting.createdBy
+          });
+        } catch (removalError) {
+          console.error('Error removing meeting from MeetingBaas/Calendar:', removalError);
+          // Continue with database deletion even if external removal fails
+        }
+      }
+      
+      // Delete meeting from database
       await prisma.meeting.delete({
         where: { id: meetingId }
       });

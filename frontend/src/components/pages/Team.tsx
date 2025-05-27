@@ -3,7 +3,7 @@ import { useUser } from '@clerk/clerk-react';
 import { userApi } from '../../utils/api';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
-import { TrashSimple, Plus, MagnifyingGlass, CaretDown, Clock } from 'phosphor-react';
+import { Trash, Plus, MagnifyingGlass, CaretDown, Clock } from 'phosphor-react';
 import { Link } from 'react-router-dom';
 import type { 
   TeamMember, 
@@ -363,13 +363,6 @@ const Team = () => {
         </div>
         
         <div className="flex items-center">
-          <div className="relative inline-block text-left mr-3">
-            <button className="inline-flex justify-between items-center w-48 rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">
-              <span>Sort by: Created</span>
-              <CaretDown size={20} weight="fill" />
-            </button>
-          </div>
-          
           {isAdmin && (
             <button
               className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -452,7 +445,7 @@ const Team = () => {
                             className="text-red-600 hover:text-red-900"
                             title="Remove team member"
                           >
-                            <TrashSimple size={20} />
+                            <Trash size={18} />
                           </button>
                         )}
                       </td>
@@ -510,23 +503,25 @@ const Team = () => {
                     </td>
                     {isAdmin && (
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => {
-                            // In a real app we'd create logic to resend here
-                            // Resend invitation functionality would go here
-                          }}
-                          className="text-indigo-600 hover:text-indigo-900 mr-4"
-                          title="Resend invitation"
-                        >
-                          <Clock size={20} />
-                        </button>
-                        <button
-                          onClick={() => confirmDeleteInvitation(invitation)}
-                          className="text-red-600 hover:text-red-900"
-                          title="Cancel invitation"
-                        >
-                          <TrashSimple size={20} />
-                        </button>
+                        <div className="flex justify-end space-x-2">
+                          <button
+                            onClick={() => {
+                              // In a real app we'd create logic to resend here
+                              // Resend invitation functionality would go here
+                            }}
+                            className="text-indigo-600 hover:text-indigo-900"
+                            title="Resend invitation"
+                          >
+                            <Clock size={20} />
+                          </button>
+                          <button
+                            onClick={() => confirmDeleteInvitation(invitation)}
+                            className="text-red-600 hover:text-red-900"
+                            title="Cancel invitation"
+                          >
+                            <Trash size={18} />
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>

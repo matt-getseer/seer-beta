@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { MagnifyingGlass, CaretDown, Plus, ArrowUp, ArrowDown } from 'phosphor-react';
+import { MagnifyingGlass, CaretDown, Plus, ArrowUp, ArrowDown, Trash } from 'phosphor-react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
+import { Dialog, Transition } from '@headlessui/react';
+import { Fragment } from 'react';
 import NewMeetingModal from '../NewMeetingModal';
 
 import { useApiState } from '../../hooks/useApiState';
@@ -45,6 +47,12 @@ const Meetings = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
   const { getToken } = useAuth();
+  
+  // Delete confirmation state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [meetingToDelete, setMeetingToDelete] = useState<Meeting | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Fetch current user data
   const fetchCurrentUser = useCallback(async () => {
@@ -176,6 +184,51 @@ const Meetings = () => {
     fetchMeetings();
   };
   
+  // Handle delete meeting
+  const handleDeleteClick = (meeting: Meeting) => {
+    // Only allow deletion of non-completed meetings
+    if (meeting.status === 'completed') {
+      return;
+    }
+    
+    setMeetingToDelete(meeting);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!meetingToDelete) return;
+    
+    try {
+      setIsDeleting(true);
+      const token = await getToken();
+      
+      await axios.delete(`${API_URL}/api/meetings/${meetingToDelete.id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      // Refresh the meetings list
+      fetchMeetings();
+      
+      // Close the confirmation dialog
+      setShowDeleteConfirm(false);
+      setMeetingToDelete(null);
+      setDeleteConfirmText('');
+    } catch (error) {
+      console.error('Error deleting meeting:', error);
+      // You could add a toast notification here for better UX
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirm(false);
+    setMeetingToDelete(null);
+    setDeleteConfirmText('');
+  };
+  
   // Render sort indicator
   const renderSortIndicator = (field: keyof Meeting) => {
     if (sortField !== field) return null;
@@ -246,13 +299,6 @@ const Meetings = () => {
         </div>
         
         <div className="flex items-center">
-          <div className="relative inline-block text-left mr-3">
-            <button className="inline-flex justify-between items-center w-48 rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">
-              <span>Sort by: {sortField.charAt(0).toUpperCase() + sortField.slice(1)}</span>
-              <CaretDown size={20} weight="fill" />
-            </button>
-          </div>
-          
           {isAdmin && (
             <button
               className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
@@ -330,6 +376,10 @@ const Meetings = () => {
                     >
                       Status {renderSortIndicator('status')}
                     </th>
+                    {isAdmin && (
+                      <th scope="col" className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-auto">
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -357,6 +407,19 @@ const Meetings = () => {
                           processingStatus={meeting.processingStatus} 
                         />
                       </td>
+                      {isAdmin && (
+                        <td className="px-3 py-4 whitespace-nowrap text-right w-auto">
+                          {meeting.status !== 'completed' && (
+                            <button
+                              onClick={() => handleDeleteClick(meeting)}
+                              className="text-red-600 hover:text-red-800 transition-colors duration-200"
+                              title="Delete meeting"
+                            >
+                              <Trash size={18} />
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -447,6 +510,91 @@ const Meetings = () => {
         onClose={() => setShowNewMeetingModal(false)}
         onMeetingCreated={handleMeetingCreated}
       />
+
+      {/* Delete Confirmation Modal */}
+      <Transition appear show={showDeleteConfirm} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={handleDeleteCancel}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-black bg-opacity-25" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4 text-center">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
+              >
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+                  <Dialog.Title
+                    as="h3"
+                    className="text-lg font-medium leading-6 text-gray-900"
+                  >
+                    Delete Meeting
+                  </Dialog.Title>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to delete <strong>"{meetingToDelete?.title}"</strong>? This will:
+                    </p>
+                    <ul className="text-sm text-gray-500 mt-2 list-disc list-inside">
+                      <li>Remove the bot from the meeting</li>
+                      <li>Cancel the calendar event for both parties</li>
+                      <li>Permanently delete the meeting record</li>
+                    </ul>
+                    <p className="text-sm text-red-600 mt-2 font-medium">
+                      This action cannot be undone.
+                    </p>
+                    
+                    <div className="mt-4">
+                      <label htmlFor="confirm-delete" className="block text-sm font-medium text-gray-700 mb-1">
+                        Type DELETE to confirm
+                      </label>
+                      <input
+                        type="text"
+                        id="confirm-delete"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500"
+                        value={deleteConfirmText}
+                        onChange={(e) => setDeleteConfirmText(e.target.value)}
+                        placeholder="DELETE"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
+                      onClick={handleDeleteCancel}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50"
+                      onClick={handleDeleteConfirm}
+                      disabled={isDeleting || deleteConfirmText !== 'DELETE'}
+                    >
+                      {isDeleting ? 'Deleting...' : 'Delete Meeting'}
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
+            </div>
+          </div>
+        </Dialog>
+      </Transition>
     </div>
   );
 };

@@ -447,4 +447,126 @@ export class MeetingBaasService {
       throw new Error(`Failed to fetch calendar event details for ${eventId}`);
     }
   }
+
+  /**
+   * Remove/Cancel a meeting by removing the bot and deleting the calendar event
+   */
+  static async removeMeeting(meetingData: {
+    meetingBaasId: string;
+    googleMeetLink: string;
+    userId?: string;
+  }): Promise<void> {
+    try {
+      // 1. Remove the bot from MeetingBaas
+      await axios.delete(
+        `${MEETINGBAAS_API_URL}/bots/${meetingData.meetingBaasId}`,
+        {
+          headers: {
+            'x-meeting-baas-api-key': MEETINGBAAS_API_KEY,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      // 2. Delete the Google Calendar event
+      await this.deleteGoogleCalendarEvent(meetingData);
+
+      console.log(`Successfully removed meeting with bot ID: ${meetingData.meetingBaasId}`);
+    } catch (error) {
+      console.error('Error removing meeting:', error);
+      
+      // Log detailed error information for debugging
+      if (axios.isAxiosError(error)) {
+        console.error('MeetingBaas API Error Details:');
+        console.error('Status:', error.response?.status);
+        console.error('Status Text:', error.response?.statusText);
+        console.error('Response Data:', JSON.stringify(error.response?.data, null, 2));
+      }
+      
+      throw new Error('Failed to remove meeting');
+    }
+  }
+
+  /**
+   * Delete Google Calendar event
+   */
+  private static async deleteGoogleCalendarEvent(meetingData: {
+    googleMeetLink: string;
+    userId?: string;
+  }): Promise<void> {
+    try {
+      // Try to get the user's refresh token if userId is provided
+      let refreshToken = GOOGLE_REFRESH_TOKEN;
+      
+      if (meetingData.userId) {
+        try {
+          const user = await prisma.user.findUnique({
+            where: { id: meetingData.userId },
+            select: { googleRefreshToken: true, googleConnected: true }
+          });
+          
+          if (user?.googleConnected && user?.googleRefreshToken) {
+            refreshToken = user.googleRefreshToken;
+          }
+        } catch (err) {
+          console.warn('Error fetching user refresh token:', err);
+          // Continue with the default refresh token
+        }
+      }
+      
+      // If Google API credentials are not set, skip calendar deletion
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !refreshToken) {
+        console.warn('Google API credentials not set, skipping calendar event deletion');
+        return;
+      }
+
+      // Set up OAuth2 client
+      const oauth2Client = new google.auth.OAuth2(
+        GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET
+      );
+      
+      oauth2Client.setCredentials({
+        refresh_token: refreshToken
+      });
+      
+      // Create Calendar API client
+      const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+      
+      // Extract event ID from Google Meet link if possible
+      // Google Meet links typically contain the event ID or we need to find it by searching
+      // For now, we'll search for events with this meet link
+      const events = await calendar.events.list({
+        calendarId: GOOGLE_CALENDAR_ID,
+        timeMin: new Date().toISOString(),
+        maxResults: 100,
+        singleEvents: true,
+        orderBy: 'startTime'
+      });
+
+      // Find the event with matching Google Meet link
+      const eventToDelete = events.data.items?.find(event => {
+        const meetLink = event.conferenceData?.entryPoints?.find(
+          (ep: any) => ep.entryPointType === 'video'
+        )?.uri;
+        return meetLink === meetingData.googleMeetLink;
+      });
+
+      if (eventToDelete && eventToDelete.id) {
+        // Delete the calendar event
+        await calendar.events.delete({
+          calendarId: GOOGLE_CALENDAR_ID,
+          eventId: eventToDelete.id,
+          sendUpdates: 'all' // This will send cancellation notifications to attendees
+        });
+        
+        console.log(`Successfully deleted Google Calendar event: ${eventToDelete.id}`);
+      } else {
+        console.warn('Could not find Google Calendar event to delete');
+      }
+    } catch (error) {
+      console.error('Error deleting Google Calendar event:', error);
+      // Don't throw here - we still want to remove the bot even if calendar deletion fails
+    }
+  }
 } 
