@@ -1,7 +1,17 @@
-import * as Sentry from '@sentry/react';
+// Lazy Sentry initialization to reduce initial bundle size
+let sentryInitialized = false;
+let sentryModule: typeof import('@sentry/react') | null = null;
+
+// Lazy load Sentry only when needed
+const loadSentry = async () => {
+  if (!sentryModule) {
+    sentryModule = await import('@sentry/react');
+  }
+  return sentryModule;
+};
 
 // Sentry configuration
-export const initSentry = () => {
+export const initSentry = async () => {
   // Only initialize Sentry in production or if explicitly enabled
   const shouldInitSentry = 
     import.meta.env.MODE === 'production' || 
@@ -12,62 +22,74 @@ export const initSentry = () => {
     return;
   }
 
+  if (sentryInitialized) {
+    return;
+  }
+
   const dsn = import.meta.env.VITE_SENTRY_DSN;
   if (!dsn) {
     console.warn('Sentry DSN not configured. Set VITE_SENTRY_DSN environment variable.');
     return;
   }
 
-  Sentry.init({
-    dsn,
-    environment: import.meta.env.MODE,
+  try {
+    const Sentry = await loadSentry();
     
-    // Performance monitoring sample rate
-    tracesSampleRate: import.meta.env.MODE === 'production' ? 0.1 : 1.0,
+    Sentry.init({
+      dsn,
+      environment: import.meta.env.MODE,
+      
+      // Performance monitoring sample rate
+      tracesSampleRate: import.meta.env.MODE === 'production' ? 0.1 : 1.0,
 
-    // Release tracking
-    release: import.meta.env.VITE_APP_VERSION || 'unknown',
+      // Release tracking
+      release: import.meta.env.VITE_APP_VERSION || 'unknown',
 
-    // Error filtering
-    beforeSend(event, hint) {
-      // Filter out development errors
-      if (import.meta.env.MODE === 'development') {
-        console.log('Sentry event (dev mode):', event);
-        return null; // Don't send in development
-      }
-
-      // Filter out known non-critical errors
-      const error = hint.originalException;
-      if (error instanceof Error) {
-        // Filter out network errors that are expected
-        if (error.message.includes('NetworkError') || 
-            error.message.includes('Failed to fetch')) {
-          return null;
+      // Error filtering
+      beforeSend(event, hint) {
+        // Filter out development errors
+        if (import.meta.env.MODE === 'development') {
+          console.log('Sentry event (dev mode):', event);
+          return null; // Don't send in development
         }
-        
-        // Filter out Clerk auth errors (they handle their own error reporting)
-        if (error.message.includes('Clerk') || 
-            error.stack?.includes('clerk')) {
-          return null;
+
+        // Filter out known non-critical errors
+        const error = hint.originalException;
+        if (error instanceof Error) {
+          // Filter out network errors that are expected
+          if (error.message.includes('NetworkError') || 
+              error.message.includes('Failed to fetch')) {
+            return null;
+          }
+          
+          // Filter out Clerk auth errors (they handle their own error reporting)
+          if (error.message.includes('Clerk') || 
+              error.stack?.includes('clerk')) {
+            return null;
+          }
         }
-      }
 
-      return event;
-    },
+        return event;
+      },
 
-    // Additional configuration
-    attachStacktrace: true,
+      // Additional configuration
+      attachStacktrace: true,
+      
+      // User privacy
+      sendDefaultPii: false, // Don't send personally identifiable information
+      
+      // Debug mode in development
+      debug: import.meta.env.MODE === 'development',
+    });
     
-    // User privacy
-    sendDefaultPii: false, // Don't send personally identifiable information
-    
-    // Debug mode in development
-    debug: import.meta.env.MODE === 'development',
-  });
+    sentryInitialized = true;
+  } catch (error) {
+    console.warn('Failed to initialize Sentry:', error);
+  }
 };
 
 // Enhanced error reporting with context
-export const reportError = (
+export const reportError = async (
   error: Error | unknown, 
   context?: {
     component?: string;
@@ -77,27 +99,34 @@ export const reportError = (
     [key: string]: any;
   }
 ) => {
-  // Set user context if provided
-  if (context?.userId) {
-    Sentry.setUser({ id: context.userId });
-  }
+  try {
+    const Sentry = await loadSentry();
+    
+    // Set user context if provided
+    if (context?.userId) {
+      Sentry.setUser({ id: context.userId });
+    }
 
-  // Set additional context
-  if (context) {
-    Sentry.setContext('error_context', {
-      component: context.component,
-      action: context.action,
-      endpoint: context.endpoint,
-      timestamp: new Date().toISOString(),
-      ...context
-    });
-  }
+    // Set additional context
+    if (context) {
+      Sentry.setContext('error_context', {
+        component: context.component,
+        action: context.action,
+        endpoint: context.endpoint,
+        timestamp: new Date().toISOString(),
+        ...context
+      });
+    }
 
-  // Report the error
-  if (error instanceof Error) {
-    Sentry.captureException(error);
-  } else {
-    Sentry.captureMessage(String(error), 'error');
+    // Report the error
+    if (error instanceof Error) {
+      Sentry.captureException(error);
+    } else {
+      Sentry.captureMessage(String(error), 'error');
+    }
+  } catch (sentryError) {
+    console.warn('Failed to report error to Sentry:', sentryError);
+    console.error('Original error:', error);
   }
 };
 
@@ -124,39 +153,49 @@ export const trackApiCall = async <T>(
     
     // Log successful API call performance
     const duration = Date.now() - startTime;
-    Sentry.addBreadcrumb({
-      message: `API Success: ${context?.method || 'GET'} ${endpoint}`,
-      category: 'http',
-      level: 'info',
-      data: {
-        endpoint,
-        method: context?.method || 'GET',
-        duration: `${duration}ms`,
-        status: 'success',
-        ...context
-      },
-    });
+    try {
+      const Sentry = await loadSentry();
+      Sentry.addBreadcrumb({
+        message: `API Success: ${context?.method || 'GET'} ${endpoint}`,
+        category: 'http',
+        level: 'info',
+        data: {
+          endpoint,
+          method: context?.method || 'GET',
+          duration: `${duration}ms`,
+          status: 'success',
+          ...context
+        },
+      });
+    } catch {
+      // Silently fail if Sentry is not available
+    }
     
     return result;
   } catch (error) {
     const duration = Date.now() - startTime;
     
     // Log failed API call
-    Sentry.addBreadcrumb({
-      message: `API Error: ${context?.method || 'GET'} ${endpoint}`,
-      category: 'http',
-      level: 'error',
-      data: {
-        endpoint,
-        method: context?.method || 'GET',
-        duration: `${duration}ms`,
-        status: 'error',
-        ...context
-      },
-    });
+    try {
+      const Sentry = await loadSentry();
+      Sentry.addBreadcrumb({
+        message: `API Error: ${context?.method || 'GET'} ${endpoint}`,
+        category: 'http',
+        level: 'error',
+        data: {
+          endpoint,
+          method: context?.method || 'GET',
+          duration: `${duration}ms`,
+          status: 'error',
+          ...context
+        },
+      });
+    } catch {
+      // Silently fail if Sentry is not available
+    }
     
     // Report API errors with additional context
-    reportError(error, {
+    await reportError(error, {
       endpoint,
       method: context?.method || 'GET',
       duration: `${duration}ms`,
@@ -168,20 +207,30 @@ export const trackApiCall = async <T>(
 };
 
 // User action tracking
-export const trackUserAction = (action: string, properties?: Record<string, any>) => {
-  Sentry.addBreadcrumb({
-    message: `User action: ${action}`,
-    category: 'user',
-    level: 'info',
-    data: properties,
-  });
+export const trackUserAction = async (action: string, properties?: Record<string, any>) => {
+  try {
+    const Sentry = await loadSentry();
+    Sentry.addBreadcrumb({
+      message: `User action: ${action}`,
+      category: 'user',
+      level: 'info',
+      data: properties,
+    });
+  } catch {
+    // Silently fail if Sentry is not available
+  }
 };
 
-// Component error boundary integration
-export const SentryErrorBoundary = Sentry.withErrorBoundary;
-
-// Export Sentry for direct use if needed
-export { Sentry };
+// Component error boundary integration (lazy loaded)
+export const getSentryErrorBoundary = async () => {
+  try {
+    const Sentry = await loadSentry();
+    return Sentry.withErrorBoundary;
+  } catch {
+    // Return a no-op error boundary if Sentry fails to load
+    return (component: React.ComponentType) => component;
+  }
+};
 
 // Environment configuration helper
 export const getSentryConfig = () => ({
