@@ -782,9 +782,9 @@ export class MeetingController {
   }
 
   /**
-   * Generate tasks from meeting transcript
+   * Generate task suggestions based on areas for support
    */
-  static async generateTasks(req: Request, res: Response) {
+  static async suggestTasks(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
       const userRole = req.user?.role;
@@ -794,7 +794,7 @@ export class MeetingController {
         return res.status(401).json({ error: 'User not authenticated' });
       }
       
-      console.log(`Generating tasks for meeting ${meetingId} by user: ${userId}, role: ${userRole}`);
+      console.log(`Suggesting tasks for meeting ${meetingId} by user: ${userId}, role: ${userRole}`);
       
       // Get the meeting
       const meeting = await prisma.meeting.findUnique({
@@ -813,9 +813,22 @@ export class MeetingController {
         return res.status(403).json({ error: 'Access denied' });
       }
       
-      // Check if meeting has a transcript
-      if (!meeting.transcript) {
-        return res.status(400).json({ error: 'Meeting has no transcript to generate tasks from' });
+      // Check if meeting has areas for support
+      if (!meeting.areasForSupport || meeting.areasForSupport.length === 0) {
+        return res.status(400).json({ error: 'Meeting has no areas for support to generate task suggestions from' });
+      }
+      
+      // Check if there are already suggested tasks for this meeting
+      const existingSuggestedTasks = await prisma.$queryRaw`
+        SELECT * FROM "Task" WHERE "meetingId" = ${meetingId} AND "status" = 'suggested'
+      ` as any[];
+      
+      if (existingSuggestedTasks.length > 0) {
+        console.log(`Meeting already has ${existingSuggestedTasks.length} suggested tasks`);
+        return res.status(200).json({ 
+          message: 'Suggested tasks already exist for this meeting',
+          suggestedTasksCount: existingSuggestedTasks.length
+        });
       }
       
       // Check if the user has custom AI settings
@@ -859,81 +872,75 @@ export class MeetingController {
       const teamMemberName = teamMember?.name || teamMember?.email?.split('@')[0] || 'Team Member';
       const firstName = teamMemberName.split(' ')[0]; // Extract first name
       
-      // Process the transcript to extract tasks
-      const { MeetingProcessorService, MeetingType } = await import('../services/meeting-processor.service');
+      // Generate task suggestions using AI
+      const { TaskSuggestionService } = await import('../services/task-suggestion.service');
       
-      // Use ONE_ON_ONE meeting type as that's what the system is configured for
-      const nlpResult = await MeetingProcessorService.processMeetingTranscript(
-        meetingId,
-        meeting.transcript,
-        MeetingType.ONE_ON_ONE
+      const suggestions = await TaskSuggestionService.generateTaskSuggestions(
+        meeting.areasForSupport,
+        meeting.transcript || '',
+        meeting.executiveSummary || '',
+        firstName,
+        customApiKey,
+        customAiProvider
       );
       
-      // Update the meeting with the extracted tasks
-      await prisma.meeting.update({
-        where: { id: meetingId },
-        data: {
-          tasks: nlpResult.tasks,
-          // Also update other fields if they were extracted
-          ...(nlpResult.executiveSummary && !meeting.executiveSummary ? { executiveSummary: nlpResult.executiveSummary } : {}),
-          ...(nlpResult.wins && nlpResult.wins.length > 0 && (!meeting.wins || meeting.wins.length === 0) ? { wins: nlpResult.wins } : {}),
-          ...(nlpResult.areasForSupport && nlpResult.areasForSupport.length > 0 && (!meeting.areasForSupport || meeting.areasForSupport.length === 0) ? { areasForSupport: nlpResult.areasForSupport } : {}),
-        }
-      });
-      
-      // Create structured tasks with intelligent assignment if tasks were found
-      if (nlpResult.tasks && nlpResult.tasks.length > 0) {
-        const { TaskAssignmentService } = await import('../services/task-assignment.service');
+      // Save suggested tasks to database
+      const savedTasks = [];
+      for (const suggestion of suggestions) {
+        const taskId = crypto.randomUUID();
+        const now = new Date();
         
-        // Use TaskAssignmentService to intelligently assign tasks
-        const assignedTasks = await TaskAssignmentService.assignTasks(
-          nlpResult.tasks,
-          meeting.createdBy, // Manager ID
-          meeting.teamMemberId || meeting.createdBy, // Use creator as fallback team member
-          customApiKey,
-          customAiProvider,
-          firstName // Team member's first name for personalization
-        );
-
-        // Create structured Task records in the database
-        for (const taskData of assignedTasks) {
-          const taskId = crypto.randomUUID();
-          const now = new Date();
-          
-          await prisma.$executeRaw`
-            INSERT INTO "Task" (
-              "id", 
-              "text", 
-              "assignedTo", 
-              "meetingId", 
-              "status", 
-              "createdAt"
-            )
-            VALUES (
-              ${taskId}, 
-              ${taskData.text}, 
-              ${taskData.assignedTo}, 
-              ${meeting.id}, 
-              'incomplete', 
-              ${now}::timestamp
-            )
-          `;
-          
-          console.log(`Created task "${taskData.text}" assigned to ${taskData.assignedTo} (${taskData.assignmentReason})`);
-        }
+        // Don't set assignedTo for suggested tasks - it will be set when approved
+        let assignedTo = null;
         
-        console.log(`Successfully created ${assignedTasks.length} structured tasks for meeting ${meeting.id}`);
+        await prisma.$executeRaw`
+          INSERT INTO "Task" (
+            "id", 
+            "text", 
+            "assignedTo", 
+            "meetingId", 
+            "status", 
+            "createdAt",
+            "reasoning",
+            "relatedAreaForSupport",
+            "suggestedAssignee"
+          )
+          VALUES (
+            ${taskId}, 
+            ${suggestion.text}, 
+            ${assignedTo}, 
+            ${meeting.id}, 
+            'suggested', 
+            ${now}::timestamp,
+            ${suggestion.reasoning},
+            ${suggestion.relatedAreaForSupport},
+            ${suggestion.suggestedAssignee}
+          )
+        `;
+        
+        savedTasks.push({
+          id: taskId,
+          text: suggestion.text,
+          assignedTo,
+          status: 'suggested',
+          createdAt: now.toISOString(),
+          reasoning: suggestion.reasoning,
+          relatedAreaForSupport: suggestion.relatedAreaForSupport,
+          suggestedAssignee: suggestion.suggestedAssignee
+        });
+        
+        console.log(`Saved suggested task "${suggestion.text}" for ${suggestion.suggestedAssignee}`);
       }
       
       return res.status(200).json({ 
-        message: 'Tasks generated successfully',
-        tasksCount: nlpResult.tasks?.length || 0,
-        tasks: nlpResult.tasks || []
+        message: 'Task suggestions generated and saved successfully',
+        suggestedTasksCount: savedTasks.length,
+        areasForSupportCount: meeting.areasForSupport.length
       });
     } catch (error) {
-      console.error('Error generating tasks:', error);
+      console.error('Error generating task suggestions:', error);
       return res.status(500).json({ 
-        error: 'Failed to generate tasks',
+        error: 'Failed to generate task suggestions',
         details: error instanceof Error ? error.message : String(error)
       });
     }

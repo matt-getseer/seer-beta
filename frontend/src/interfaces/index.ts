@@ -15,9 +15,14 @@ export interface Task {
   text: string;
   assignedTo?: string; // Team member ID
   assigneeName?: string; // Team member name for display
-  status: 'incomplete' | 'complete';
+  status: 'incomplete' | 'complete' | 'suggested';
   createdAt: string;
   completedAt?: string;
+  
+  // Suggested task specific fields
+  reasoning?: string; // AI reasoning for suggested tasks
+  relatedAreaForSupport?: string; // Which area for support this relates to
+  suggestedAssignee?: 'manager' | 'team_member'; // For suggested tasks
 }
 
 // Key Area interface
@@ -120,4 +125,12 @@ export interface InviteStatus {
   currentCount: number;
   remainingInvites: number;
   pendingInvitations?: number;
+}
+
+export interface SuggestedTask {
+  id: string;
+  text: string;
+  reasoning: string;
+  relatedAreaForSupport: string;
+  suggestedAssignee?: 'manager' | 'team_member';
 } 

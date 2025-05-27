@@ -351,4 +351,85 @@ export class TaskController {
       });
     }
   }
+
+  /**
+   * Approve a suggested task (convert from 'suggested' to 'incomplete')
+   */
+  static async approveSuggestedTask(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      const userRole = req.user?.role;
+      const meetingId = req.params.id;
+      const taskId = req.params.taskId;
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
+      
+      // First, check if user has access to this meeting
+      const meeting = await prisma.meeting.findUnique({
+        where: {
+          id: meetingId
+        }
+      });
+      
+      if (!meeting) {
+        return res.status(404).json({ error: 'Meeting not found' });
+      }
+      
+      // Check if user has access to this meeting
+      if (userRole !== 'admin' && meeting.createdBy !== userId && meeting.teamMemberId !== userId) {
+        return res.status(403).json({ error: 'You do not have access to this meeting' });
+      }
+      
+      // Get the task
+      const tasks = await prisma.$queryRaw`
+        SELECT * FROM "Task" WHERE "id" = ${taskId}
+      ` as any[];
+      
+      if (!tasks.length) {
+        return res.status(404).json({ error: 'Task not found' });
+      }
+      
+      const task = tasks[0];
+      
+      if (task.meetingId !== meetingId) {
+        return res.status(400).json({ error: 'Task does not belong to this meeting' });
+      }
+      
+      if (task.status !== 'suggested') {
+        return res.status(400).json({ error: 'Task is not a suggested task' });
+      }
+      
+      // Determine the correct assignedTo based on suggestedAssignee
+      let finalAssignedTo = task.assignedTo; // Default to current value
+      if (task.suggestedAssignee === 'manager') {
+        finalAssignedTo = meeting.createdBy;
+      } else if (task.suggestedAssignee === 'team_member') {
+        finalAssignedTo = meeting.teamMemberId;
+      }
+      
+      // Update the task status to 'incomplete' and set correct assignedTo
+      await prisma.$executeRaw`
+        UPDATE "Task" 
+        SET "status" = 'incomplete', "assignedTo" = ${finalAssignedTo}
+        WHERE "id" = ${taskId}
+      `;
+      
+      // Retrieve the updated task
+      const updatedTasks = await prisma.$queryRaw`
+        SELECT * FROM "Task" WHERE "id" = ${taskId}
+      ` as any[];
+      
+      console.log(`Approved suggested task "${task.text}" for meeting ${meetingId}`);
+      
+      return res.status(200).json(updatedTasks[0]);
+    } catch (error) {
+      console.error('Error approving suggested task:', error);
+      return res.status(500).json({ 
+        error: 'Failed to approve suggested task',
+        details: formatDbError(error)
+      });
+    }
+  }
 } 

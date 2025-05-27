@@ -428,4 +428,73 @@ The JSON structure must be exactly:
       };
     }
   }
+
+  /**
+   * Generate task suggestions based on areas for support
+   */
+  static async generateTaskSuggestions(
+    prompt: string,
+    apiKey: string
+  ) {
+    if (!apiKey) {
+      throw new Error('OpenAI API key is not provided');
+    }
+    
+    try {
+      console.log('Making API call to OpenAI for task suggestions');
+      const response = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert management coach. Respond only with valid JSON.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          max_tokens: 2000,
+          temperature: 0.1,
+          response_format: { type: "json_object" }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          }
+        }
+      );
+      
+      console.log('Received response from OpenAI API for task suggestions');
+      const responseContent = response.data.choices[0].message.content;
+      
+      try {
+        return JSON.parse(responseContent);
+      } catch (parseError) {
+        console.error('Error parsing OpenAI task suggestions response:', parseError);
+        console.log('Raw response content:', responseContent);
+        
+        // Return fallback structure
+        return {
+          suggestedTasks: []
+        };
+      }
+    } catch (error) {
+      console.error('Error calling OpenAI API for task suggestions:');
+      if (axios.isAxiosError(error)) {
+        console.error('Status:', error.response?.status);
+        console.error('Data:', JSON.stringify(error.response?.data, null, 2));
+      } else {
+        console.error(error instanceof Error ? error.message : error);
+      }
+      
+      // Return empty suggestions on API failure
+      return {
+        suggestedTasks: []
+      };
+    }
+  }
 } 

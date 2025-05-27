@@ -396,5 +396,77 @@ The JSON structure must be exactly:
     }
   }
 
-
+  /**
+   * Generate task suggestions based on areas for support
+   */
+  static async generateTaskSuggestions(
+    prompt: string,
+    apiKey?: string | null
+  ) {
+    // Get API key - try to use custom API key if provided, otherwise use system key
+    const ANTHROPIC_API_KEY = apiKey || process.env.ANTHROPIC_API_KEY;
+    
+    if (!ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY is not configured');
+    }
+    
+    try {
+      console.log('Making API call to Anthropic for task suggestions');
+      const response = await axios.post(
+        'https://api.anthropic.com/v1/messages',
+        {
+          model: 'claude-3-7-sonnet-latest',
+          max_tokens: 2000,
+          system: 'You are an expert management coach. Respond only with valid JSON.',
+          messages: [
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+        },
+        {
+          headers: {
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+            'x-api-key': ANTHROPIC_API_KEY,
+          }
+        }
+      );
+      
+      console.log('Received response from Anthropic API for task suggestions');
+      const responseContent = response.data.content[0].text;
+      
+      // Try to parse JSON from response
+      try {
+        const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[0]);
+        } else {
+          return JSON.parse(responseContent);
+        }
+      } catch (parseError) {
+        console.error('Error parsing Anthropic task suggestions response:', parseError);
+        console.log('Raw response content:', responseContent);
+        
+        // Return fallback structure
+        return {
+          suggestedTasks: []
+        };
+      }
+    } catch (error) {
+      console.error('Error calling Anthropic API for task suggestions:');
+      if (axios.isAxiosError(error)) {
+        console.error('Status:', error.response?.status);
+        console.error('Data:', JSON.stringify(error.response?.data, null, 2));
+      } else {
+        console.error(error instanceof Error ? error.message : error);
+      }
+      
+      // Return empty suggestions on API failure
+      return {
+        suggestedTasks: []
+      };
+    }
+  }
 } 

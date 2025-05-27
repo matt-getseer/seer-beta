@@ -3,7 +3,7 @@ import { useUser } from '@clerk/clerk-react';
 import { userApi } from '../../utils/api';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
-import { Trash, Plus, MagnifyingGlass, CaretDown, Clock } from 'phosphor-react';
+import { Trash, Plus, MagnifyingGlass, Clock } from 'phosphor-react';
 import { Link } from 'react-router-dom';
 import type { 
   TeamMember, 

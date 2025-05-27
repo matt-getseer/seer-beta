@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, VideoCamera, Check, Clock, CheckCircle } from 'phosphor-react';
+import { ArrowLeft, VideoCamera, Clock, CheckCircle, Sparkle } from 'phosphor-react';
 import { useAuth } from '@clerk/clerk-react';
 import VideoPlayer from '../VideoPlayer';
 import TaskSidebar from '../TaskSidebar';
@@ -11,7 +11,6 @@ import { meetingApi, userApi } from '../../utils/api';
 import { useApiState } from '../../hooks/useApiState';
 import { formatMeetingDateTime, formatDuration } from '../../utils/dateUtils';
 import StatusBadge from '../StatusBadge';
-import { getAssignmentBadgeClass } from '../../utils/statusUtils';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
@@ -32,6 +31,7 @@ interface Meeting {
   tasks?: Task[]; // Updated to use Task type
   transcript?: string;
   recordingUrl?: string;
+  createdBy?: string;
 }
 
 const MeetingOverview = () => {
@@ -46,6 +46,7 @@ const MeetingOverview = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(false);
+  const [generatingSuggestions, setGeneratingSuggestions] = useState(false);
   const [showChangesModal, setShowChangesModal] = useState(false);
   const { getToken } = useAuth();
   const [agenda, setAgenda] = useState<{
@@ -59,7 +60,6 @@ const MeetingOverview = () => {
   const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [agendaError, setAgendaError] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [generatingTasks, setGeneratingTasks] = useState(false);
   
   useEffect(() => {
     const fetchMeeting = async () => {
@@ -95,14 +95,19 @@ const MeetingOverview = () => {
         
         if (response.data.tasksData && response.data.tasksData.length > 0) {
           // We have the new structured format
-          processedTasks = response.data.tasksData.map((item: Omit<Task, 'assigneeName'>) => ({
+          processedTasks = response.data.tasksData.map((item: any) => ({
             id: item.id,
             text: item.text,
-            status: item.status as 'incomplete' | 'complete',
+            status: item.status as 'incomplete' | 'complete' | 'suggested',
             createdAt: item.createdAt,
             completedAt: item.completedAt,
             assignedTo: item.assignedTo,
-            assigneeName: item.assignedTo === currentUser.id ? 'Me' : (item.assignedTo ? teamMembersMap.get(item.assignedTo) : undefined)
+            assigneeName: item.status === 'suggested' 
+              ? undefined // Don't set assigneeName for suggested tasks
+              : (item.assignedTo === currentUser.id ? 'Me' : (item.assignedTo ? teamMembersMap.get(item.assignedTo) : undefined)),
+            reasoning: item.reasoning,
+            relatedAreaForSupport: item.relatedAreaForSupport,
+            suggestedAssignee: item.suggestedAssignee
           }));
         } else if (response.data.actionItems && response.data.actionItems.length > 0) {
           // Fall back to legacy string array format if needed
@@ -127,6 +132,19 @@ const MeetingOverview = () => {
         
         setMeeting(meetingData);
         setError(null);
+        
+        // Auto-suggest tasks if no tasks exist but areas for support do
+        if ((!processedTasks || processedTasks.length === 0) && 
+            meetingData.areasForSupport && 
+            meetingData.areasForSupport.length > 0 &&
+            meetingData.processingStatus === 'completed') {
+          console.log('Auto-generating task suggestions since no tasks exist but areas for support found');
+          // Automatically generate task suggestions
+          setTimeout(() => {
+            generateSuggestedTasks();
+          }, 1000); // Small delay to ensure UI is ready
+        }
+        
       } catch (error) {
         // Error fetching meeting
         setError('Failed to load meeting details');
@@ -298,38 +316,43 @@ const MeetingOverview = () => {
     }, 300);
   };
 
-  // Generate tasks from transcript
-  const generateTasks = async () => {
-    if (!meeting || !meeting.transcript || !meeting.id) return;
+  // Generate suggested tasks from areas for support
+  const generateSuggestedTasks = async () => {
+    if (!meeting || !meeting.areasForSupport || meeting.areasForSupport.length === 0 || !meeting.id) return;
     
-    setGeneratingTasks(true);
+    setGeneratingSuggestions(true);
     try {
       const token = await getToken();
-      const response = await axios.post(`${API_URL}/api/meetings/${meeting.id}/generate-tasks`, {}, {
+      await axios.post(`${API_URL}/api/meetings/${meeting.id}/suggest-tasks`, {}, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
       
-      // Refresh the meeting data to get the new tasks
+      // Refresh the meeting data to get the new suggested tasks
       const updatedMeetingResponse = await axios.get(`${API_URL}/api/meetings/${meeting.id}`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
       
-      // Process tasks the same way as in the initial fetch
+      // Process tasks including suggested ones
       let processedTasks = [];
       
       if (updatedMeetingResponse.data.tasksData && updatedMeetingResponse.data.tasksData.length > 0) {
-        processedTasks = updatedMeetingResponse.data.tasksData.map((item: Omit<Task, 'assigneeName'>) => ({
+        processedTasks = updatedMeetingResponse.data.tasksData.map((item: any) => ({
           id: item.id,
           text: item.text,
-          status: item.status as 'incomplete' | 'complete',
+          status: item.status as 'incomplete' | 'complete' | 'suggested',
           createdAt: item.createdAt,
           completedAt: item.completedAt,
           assignedTo: item.assignedTo,
-          assigneeName: item.assignedTo === currentUserId ? 'Me' : (item.assignedTo ? teamMembers.find(m => m.id === item.assignedTo)?.name : undefined)
+          assigneeName: item.status === 'suggested' 
+            ? undefined // Don't set assigneeName for suggested tasks
+            : (item.assignedTo === currentUserId ? 'Me' : (item.assignedTo ? teamMembers.find(m => m.id === item.assignedTo)?.name : undefined)),
+          reasoning: item.reasoning,
+          relatedAreaForSupport: item.relatedAreaForSupport,
+          suggestedAssignee: item.suggestedAssignee
         }));
       }
       
@@ -343,10 +366,128 @@ const MeetingOverview = () => {
       });
       
     } catch (error) {
-      console.error('Error generating tasks:', error);
+      console.error('Error generating task suggestions:', error);
       // You could add a toast notification here for better UX
     } finally {
-      setGeneratingTasks(false);
+      setGeneratingSuggestions(false);
+    }
+  };
+
+  // Handle suggested task approval
+  const approveSuggestedTask = async (task: Task) => {
+    if (!meeting || !meeting.id || task.status !== 'suggested') return;
+    
+    try {
+      const token = await getToken();
+      
+      // Approve the suggested task using the new API endpoint
+      await axios.patch(`${API_URL}/api/meetings/${meeting.id}/tasks/${task.id}/approve`, {}, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      // Update the task in the local state
+      setMeeting(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks?.map(t => 
+            t.id === task.id 
+              ? { 
+                  ...t, 
+                  status: 'incomplete' as const,
+                  // Set assignedTo and assigneeName based on suggestedAssignee
+                  assignedTo: task.suggestedAssignee === 'manager' 
+                    ? currentUserId || undefined
+                    : (task.suggestedAssignee === 'team_member' 
+                        ? meeting.teamMemberId || undefined
+                        : t.assignedTo),
+                  assigneeName: task.suggestedAssignee === 'manager' 
+                    ? 'Me' 
+                    : (task.suggestedAssignee === 'team_member' 
+                        ? meeting.teamMember 
+                        : t.assigneeName)
+                }
+              : t
+          ) || []
+        };
+      });
+      
+      // Close sidebar if it was showing this task
+      if (selectedTask?.id === task.id) {
+        closeSidebar();
+      }
+      
+    } catch (error) {
+      console.error('Error approving suggested task:', error);
+    }
+  };
+
+  // Handle suggested task rejection (delete)
+  const rejectSuggestedTask = async (task: Task) => {
+    if (!meeting || !meeting.id || task.status !== 'suggested') return;
+    
+    try {
+      const token = await getToken();
+      
+      // Delete the suggested task
+      await axios.delete(`${API_URL}/api/meetings/${meeting.id}/tasks/${task.id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      // Remove the task from local state
+      setMeeting(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks?.filter(t => t.id !== task.id) || []
+        };
+      });
+      
+      // Close sidebar if it was showing this task
+      if (selectedTask?.id === task.id) {
+        closeSidebar();
+      }
+      
+    } catch (error) {
+      console.error('Error rejecting suggested task:', error);
+    }
+  };
+
+  // Handle suggested task editing
+  const editSuggestedTask = async (task: Task, newText: string) => {
+    if (!meeting || !meeting.id || task.status !== 'suggested') return;
+    
+    try {
+      const token = await getToken();
+      
+      // Update the suggested task text
+      await axios.patch(`${API_URL}/api/meetings/${meeting.id}/tasks/${task.id}`, {
+        text: newText
+      }, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      // Update the task in local state
+      setMeeting(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks?.map(t => 
+            t.id === task.id 
+              ? { ...t, text: newText }
+              : t
+          ) || []
+        };
+      });
+      
+    } catch (error) {
+      console.error('Error editing suggested task:', error);
     }
   };
   
@@ -553,11 +694,22 @@ const MeetingOverview = () => {
                                 </div>
                                 <div className="mt-3">
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                    task.assignedTo && task.assigneeName !== 'Me'
-                                      ? 'bg-indigo-100 text-indigo-800' 
-                                      : 'bg-gray-100 text-gray-800'
+                                    task.status === 'suggested'
+                                      ? (task.suggestedAssignee === 'team_member' 
+                                          ? 'bg-indigo-100 text-indigo-800'
+                                          : 'bg-gray-100 text-gray-800')
+                                      : (task.assignedTo && task.assigneeName !== 'Me'
+                                          ? 'bg-indigo-100 text-indigo-800' 
+                                          : 'bg-gray-100 text-gray-800')
                                   }`}>
-                                    {task.assigneeName || 'Unassigned'}
+                                    {task.status === 'suggested' 
+                                      ? (task.suggestedAssignee === 'manager' 
+                                          ? 'Me' 
+                                          : (task.suggestedAssignee === 'team_member' 
+                                              ? (meeting?.teamMember || 'Team Member')
+                                              : 'Unassigned'))
+                                      : (task.assigneeName || 'Unassigned')
+                                    }
                                   </span>
                                 </div>
                               </div>
@@ -565,6 +717,10 @@ const MeetingOverview = () => {
                             <div className="absolute bottom-3 right-3">
                               {task.status === 'complete' ? (
                                 <CheckCircle size={20} weight="fill" className="text-green-600" />
+                              ) : task.status === 'suggested' ? (
+                                <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 via-pink-500 to-yellow-500">
+                                  <Sparkle size={16} weight="fill" className="text-white" />
+                                </div>
                               ) : (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
                                   In Progress
@@ -576,14 +732,25 @@ const MeetingOverview = () => {
                       ) : (
                         <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm text-center">
                           <p className="text-gray-500 italic mb-3">No tasks identified</p>
-                          {meeting.transcript && (
-                            <button
-                              onClick={generateTasks}
-                              disabled={generatingTasks}
-                              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {generatingTasks ? 'Generating...' : 'Generate Tasks'}
-                            </button>
+                          
+                          {/* Show different options based on available data */}
+                          {meeting.areasForSupport && meeting.areasForSupport.length > 0 ? (
+                            <div className="space-y-2">
+                              <button
+                                onClick={generateSuggestedTasks}
+                                disabled={generatingSuggestions}
+                                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed mb-2"
+                              >
+                                {generatingSuggestions ? 'Generating Suggestions...' : 'Suggest Tasks from Areas for Support'}
+                              </button>
+                              <p className="text-xs text-gray-500">
+                                AI will suggest actionable tasks based on the {meeting.areasForSupport.length} areas for support identified
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-500">
+                              No areas for support identified to generate task suggestions from
+                            </p>
                           )}
                         </div>
                       )}
@@ -710,6 +877,9 @@ const MeetingOverview = () => {
         onStatusToggle={toggleTaskStatus}
         onAssignmentUpdate={updateTaskAssignment}
         onTaskUpdate={updateTaskText}
+        onApproveSuggestedTask={approveSuggestedTask}
+        onRejectSuggestedTask={rejectSuggestedTask}
+        onEditSuggestedTask={editSuggestedTask}
       />
     </div>
   );

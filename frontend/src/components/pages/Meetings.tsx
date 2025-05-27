@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { MagnifyingGlass, CaretDown, Plus, ArrowUp, ArrowDown, Trash } from 'phosphor-react';
+import { MagnifyingGlass, Plus, ArrowUp, ArrowDown, Trash } from 'phosphor-react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';

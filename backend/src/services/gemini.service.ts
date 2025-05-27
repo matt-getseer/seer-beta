@@ -319,4 +319,89 @@ export class GeminiService {
       throw error;
     }
   }
+
+  /**
+   * Generate task suggestions based on areas for support
+   */
+  static async generateTaskSuggestions(
+    prompt: string,
+    apiKey: string
+  ) {
+    if (!apiKey) {
+      throw new Error('Gemini API key is not provided');
+    }
+    
+    try {
+      console.log('Making API call to Gemini for task suggestions');
+      
+      const fullPrompt = `${prompt}\n\nIMPORTANT: Respond only with valid JSON. No additional text or formatting.`;
+      
+      const response = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
+        {
+          contents: [
+            {
+              parts: [
+                {
+                  text: fullPrompt
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            topK: 1,
+            topP: 1,
+            maxOutputTokens: 2000,
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      console.log('Received response from Gemini API for task suggestions');
+      
+      if (!response.data.candidates || response.data.candidates.length === 0) {
+        throw new Error('No candidates in Gemini response');
+      }
+      
+      const responseContent = response.data.candidates[0].content.parts[0].text;
+      
+      try {
+        // Clean the response and extract JSON
+        let cleanedResponse = responseContent.trim();
+        
+        // Remove markdown code blocks if present
+        cleanedResponse = cleanedResponse.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        
+        // Find JSON object boundaries
+        const jsonStart = cleanedResponse.indexOf('{');
+        const jsonEnd = cleanedResponse.lastIndexOf('}');
+        
+        if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+          cleanedResponse = cleanedResponse.substring(jsonStart, jsonEnd + 1);
+        }
+        
+        return JSON.parse(cleanedResponse);
+      } catch (parseError) {
+        console.error('Error parsing Gemini task suggestions response:', parseError);
+        console.log('Raw response content:', responseContent);
+        
+        // Return fallback structure
+        return {
+          suggestedTasks: []
+        };
+      }
+    } catch (error) {
+      console.error('Error calling Gemini API for task suggestions:', error);
+      
+      // Return empty suggestions on API failure
+      return {
+        suggestedTasks: []
+      };
+    }
+  }
 } 

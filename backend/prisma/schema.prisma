@@ -179,10 +179,15 @@ model MeetingChange {
 model Task {
   id          String    @id @default(uuid())
   text        String
-  status      String    @default("incomplete") // "incomplete" or "complete"
+  status      String    @default("incomplete") // "incomplete", "complete", or "suggested"
   assignedTo  String?   // User id of assignee (can be null if unassigned)
   createdAt   DateTime  @default(now())
   completedAt DateTime?
+  
+  // Suggested task specific fields
+  reasoning             String?   // AI reasoning for suggested tasks
+  relatedAreaForSupport String?   // Which area for support this relates to
+  suggestedAssignee     String?   // 'manager' or 'team_member' for suggested tasks
   
   // Relation to meeting
   meetingId   String
@@ -190,6 +195,7 @@ model Task {
   
   @@index([meetingId])
   @@index([assignedTo])
+  @@index([status])
 }
 
 model KeyArea {

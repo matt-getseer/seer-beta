@@ -101,7 +101,13 @@ Analyze each task and provide the assignment with reasoning.`;
       // Determine which AI service to use
       const canUseAnthropicAPI = process.env.ANTHROPIC_API_KEY || (customAiProvider === 'anthropic' && customApiKey);
       
+      console.log(`TaskAssignmentService: Assigning ${tasks.length} tasks`);
+      console.log(`AI Provider: ${customAiProvider}, Has Custom Key: ${!!customApiKey}`);
+      console.log(`Can use Anthropic: ${canUseAnthropicAPI}`);
+      console.log(`Environment Anthropic Key: ${!!process.env.ANTHROPIC_API_KEY}`);
+      
       if (canUseAnthropicAPI) {
+        console.log('Using Anthropic AI for task assignment');
         result = await AnthropicService.processWithAI(prompt, {
           responseFormat: 'json',
           parseJSON: true,
@@ -109,6 +115,7 @@ Analyze each task and provide the assignment with reasoning.`;
           temperature: 0.1
         }, customApiKey);
       } else if (customAiProvider === 'openai' && customApiKey) {
+        console.log('Using OpenAI for task assignment');
         result = await OpenAIService.processWithAI(prompt, {
           responseFormat: 'json',
           parseJSON: true,
@@ -116,6 +123,7 @@ Analyze each task and provide the assignment with reasoning.`;
           temperature: 0.1
         }, customApiKey);
       } else if (customAiProvider === 'gemini' && customApiKey) {
+        console.log('Using Gemini for task assignment');
         result = await GeminiService.processWithAI(prompt, {
           responseFormat: 'json',
           parseJSON: true,
@@ -130,13 +138,18 @@ Analyze each task and provide the assignment with reasoning.`;
 
       // Process AI result
       if (result && result.tasks && Array.isArray(result.tasks)) {
-        return result.tasks.map((task: any) => ({
-          text: task.text,
-          assignedTo: task.assignedTo === 'MANAGER' ? managerId : teamMemberId,
-          assignmentReason: task.assignmentReason || 'AI-based assignment'
-        }));
+        console.log(`AI returned ${result.tasks.length} task assignments:`, result.tasks);
+        return result.tasks.map((task: any) => {
+          const assignedTo = task.assignedTo === 'MANAGER' ? managerId : teamMemberId;
+          console.log(`Task "${task.text}" assigned to ${task.assignedTo} -> ${assignedTo} (${task.assignmentReason})`);
+          return {
+            text: task.text,
+            assignedTo,
+            assignmentReason: task.assignmentReason || 'AI-based assignment'
+          };
+        });
       } else {
-        console.warn('Invalid AI response format, using fallback assignment');
+        console.warn('Invalid AI response format, using fallback assignment. AI result:', result);
         return this.fallbackAssignment(tasks, managerId, teamMemberId, teamMemberFirstName);
       }
 
@@ -286,6 +299,24 @@ Analyze each task and provide the assignment with reasoning.`;
         } else if (hasTeamMemberKeywords) {
           assignedTo = teamMemberId;
           reason = 'Contains individual development/work keywords';
+        } else {
+          // Better default logic - analyze task content for implicit assignment cues
+          if (taskLower.includes('follow up') || taskLower.includes('check in') || 
+              taskLower.includes('schedule') || taskLower.includes('arrange') ||
+              taskLower.includes('coordinate') || taskLower.includes('organize meeting')) {
+            assignedTo = managerId;
+            reason = 'Implicit managerial task (follow-up, scheduling, coordination)';
+          } else if (taskLower.includes('learn') || taskLower.includes('practice') ||
+                     taskLower.includes('develop') || taskLower.includes('improve') ||
+                     taskLower.includes('complete') || taskLower.includes('work on')) {
+            assignedTo = teamMemberId;
+            reason = 'Implicit development/work task';
+          } else {
+            // If still unclear, use a more balanced approach
+            // For one-on-ones, team member development is often the focus
+            assignedTo = teamMemberId;
+            reason = 'Default assignment to team member (one-on-one focus)';
+          }
         }
 
         return {

@@ -54,6 +54,9 @@ router.post('/:id/tasks', requireAuth, TaskController.createTask);
 // Update a task
 router.patch('/:id/tasks/:taskId', requireAuth, TaskController.updateTask);
 
+// Approve a suggested task
+router.patch('/:id/tasks/:taskId/approve', requireAuth, TaskController.approveSuggestedTask);
+
 // Delete a task
 router.delete('/:id/tasks/:taskId', requireAuth, TaskController.deleteTask);
 
@@ -74,7 +77,7 @@ router.post('/webhook', verifyMeetingBaasWebhook, MeetingWebhookController.handl
 // Generate agenda for a meeting
 router.get('/:meetingId/agenda', requireAuth, MeetingController.generateAgenda);
 
-// Generate tasks for a meeting
-router.post('/:id/generate-tasks', requireAuth, MeetingController.generateTasks);
+// Generate task suggestions based on areas for support
+router.post('/:id/suggest-tasks', requireAuth, MeetingController.suggestTasks);
 
 export default router; 
