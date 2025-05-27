@@ -203,18 +203,12 @@ Please respond in JSON format with exactly this structure:
 }
 Each category should have 5-8 items. Make each item concise but descriptive.`;
       
-      // Call Anthropic API
-      const result = await AIService.callAnthropicAPI(prompt);
-      
-      // Parse JSON from response
+      // Call AI API with user preference detection
       try {
-        // Extract JSON from response (Claude might include extra text)
-        const jsonMatch = result.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          throw new Error('No JSON object found in response');
-        }
-        
-        const parsedResult = JSON.parse(jsonMatch[0]);
+        const parsedResult = await AIService.callAIAPI(prompt, userId, {
+          parseJSON: true,
+          fallbackToDefault: true
+        });
         
         // Ensure we have the right number of items in each category
         const sanitizedResult = {

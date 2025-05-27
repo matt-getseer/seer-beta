@@ -612,15 +612,52 @@ export class MeetingController {
         
         const teamMemberName = teamMember?.name || 'Team Member';
         
-        // Import AnthropicService dynamically
-        const { AnthropicService } = await import('../services/anthropic.service');
+        // Check if the user has custom AI settings
+        const user = await prisma.user.findUnique({
+          where: { id: currentMeeting.createdBy },
+          select: { 
+            useCustomAI: true,
+            aiProvider: true,
+            anthropicApiKey: true,
+            openaiApiKey: true,
+            hasAnthropicKey: true,
+            hasOpenAIKey: true
+          }
+        });
+        
+        // Determine which AI service to use
+        let customApiKey: string | null = null;
+        let customAiProvider: string | null = null;
+        
+        if (user?.useCustomAI) {
+          if (user.aiProvider === 'anthropic' && user.hasAnthropicKey && user.anthropicApiKey) {
+            customApiKey = user.anthropicApiKey;
+            customAiProvider = 'anthropic';
+          } else if (user.aiProvider === 'openai' && user.hasOpenAIKey && user.openaiApiKey) {
+            customApiKey = user.openaiApiKey;
+            customAiProvider = 'openai';
+          }
+        }
         
         try {
-          // Call the dedicated method for agenda generation
-          agendaResponse = await AnthropicService.generateAgenda(
-            teamMemberName,
-            previousData
-          );
+          // Use the appropriate AI service for agenda generation
+          if (customAiProvider === 'openai' && customApiKey) {
+            // Import OpenAIService dynamically
+            const { OpenAIService } = await import('../services/openai.service');
+            agendaResponse = await OpenAIService.generateAgenda(
+              teamMemberName,
+              previousData,
+              customApiKey
+            );
+          } else {
+            // Default to Anthropic (either system key or custom key)
+            const { AnthropicService } = await import('../services/anthropic.service');
+            agendaResponse = await AnthropicService.generateAgenda(
+              teamMemberName,
+              previousData,
+              customApiKey
+            );
+          }
         } catch (aiError) {
           console.error('Error generating agenda with AI:', aiError);
           
