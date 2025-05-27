@@ -64,7 +64,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
-          tasks: (claudeResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(claudeResult.actionItems || []),
+          actionItems: claudeResult.actionItems || [],
         };
       }
       
@@ -76,7 +77,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
-          tasks: (openaiResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(openaiResult.actionItems || []),
+          actionItems: openaiResult.actionItems || [],
         };
       }
       
@@ -88,7 +90,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...geminiResult,
-          tasks: (geminiResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(geminiResult.actionItems || []),
+          actionItems: geminiResult.actionItems || [],
         };
       }
       
@@ -137,7 +140,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
-          tasks: (claudeResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(claudeResult.actionItems || []),
+          actionItems: claudeResult.actionItems || [],
         };
       }
       
@@ -152,7 +156,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
-          tasks: (openaiResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(openaiResult.actionItems || []),
+          actionItems: openaiResult.actionItems || [],
         };
       }
       
@@ -167,7 +172,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...geminiResult,
-          tasks: (geminiResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(geminiResult.actionItems || []),
+          actionItems: geminiResult.actionItems || [],
         };
       }
       
@@ -211,7 +217,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
-          tasks: (claudeResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(claudeResult.actionItems || []),
+          actionItems: claudeResult.actionItems || [],
         };
       }
       
@@ -226,7 +233,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
-          tasks: (openaiResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(openaiResult.actionItems || []),
+          actionItems: openaiResult.actionItems || [],
         };
       }
       
@@ -263,7 +271,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
-          tasks: (claudeResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(claudeResult.actionItems || []),
+          actionItems: claudeResult.actionItems || [],
         };
       }
       
@@ -278,7 +287,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
-          tasks: (openaiResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(openaiResult.actionItems || []),
+          actionItems: openaiResult.actionItems || [],
         };
       }
       
@@ -322,7 +332,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
-          tasks: (claudeResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(claudeResult.actionItems || []),
+          actionItems: claudeResult.actionItems || [],
         };
       }
       
@@ -337,7 +348,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
-          tasks: (openaiResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(openaiResult.actionItems || []),
+          actionItems: openaiResult.actionItems || [],
         };
       }
       
@@ -352,7 +364,8 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...geminiResult,
-          tasks: (geminiResult as any).actionItems || [],
+          tasks: this.extractTaskTexts(geminiResult.actionItems || []),
+          actionItems: geminiResult.actionItems || [],
         };
       }
       
@@ -364,5 +377,24 @@ export class MeetingTypeProcessorService {
       console.error('Error in sales call processing:', error);
       return baseResult;
     }
+  }
+
+  /**
+   * Extract task texts from action items for backward compatibility
+   */
+  private static extractTaskTexts(actionItems: Array<{ text: string; reasoning: string }> | string[]): string[] {
+    if (!actionItems || actionItems.length === 0) {
+      return [];
+    }
+    
+    return actionItems.map(item => {
+      if (typeof item === 'string') {
+        return item.trim();
+      } else if (typeof item === 'object' && item.text) {
+        return item.text.trim();
+      } else {
+        return String(item).trim();
+      }
+    });
   }
 } 

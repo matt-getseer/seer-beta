@@ -27,7 +27,8 @@ interface NLPResult {
   executiveSummary: string;
   wins: string[];
   areasForSupport: string[];
-  tasks: string[];
+  tasks: string[]; // Legacy format for backward compatibility
+  actionItems?: Array<{ text: string; reasoning: string }>; // New format with reasoning
 }
 
 /**
@@ -422,8 +423,8 @@ export class MeetingBaasService {
       });
 
       // Create structured tasks with intelligent assignment
-      if (nlpResult.tasks && nlpResult.tasks.length > 0) {
-        await this.createStructuredTasks(meeting, nlpResult.tasks);
+      if ((nlpResult.tasks && nlpResult.tasks.length > 0) || (nlpResult.actionItems && nlpResult.actionItems.length > 0)) {
+        await this.createStructuredTasks(meeting, nlpResult);
       }
     } catch (error) {
       console.error('Error handling meeting completion:', error);
@@ -580,9 +581,31 @@ export class MeetingBaasService {
   /**
    * Create structured tasks with intelligent assignment
    */
-  private static async createStructuredTasks(meeting: any, tasks: string[]): Promise<void> {
+  private static async createStructuredTasks(meeting: any, nlpResult: any): Promise<void> {
     try {
       console.log(`Creating structured tasks for meeting ${meeting.id}`);
+      
+      // Extract tasks from either legacy format or new format
+      let tasksToProcess: Array<{ text: string; reasoning: string }> = [];
+      
+      if (nlpResult.actionItems && Array.isArray(nlpResult.actionItems)) {
+        // New format with reasoning
+        tasksToProcess = nlpResult.actionItems.map((item: any) => ({
+          text: item.text || '',
+          reasoning: item.reasoning || ''
+        }));
+      } else if (nlpResult.tasks && Array.isArray(nlpResult.tasks)) {
+        // Legacy format - convert strings to objects
+        tasksToProcess = nlpResult.tasks.map((task: string) => ({
+          text: task,
+          reasoning: ''
+        }));
+      }
+      
+      if (tasksToProcess.length === 0) {
+        console.log('No tasks to create for this meeting');
+        return;
+      }
       
       // Get user's AI preferences for task assignment
       const user = await prisma.user.findUnique({
@@ -617,17 +640,20 @@ export class MeetingBaasService {
       }
 
       // Use TaskAssignmentService to intelligently assign tasks
-      // Even without a formal team member, AI can still parse transcript context
+      // Extract just the text for assignment (TaskAssignmentService expects string[])
+      const taskTexts = tasksToProcess.map(task => task.text);
       const assignedTasks = await TaskAssignmentService.assignTasks(
-        tasks,
+        taskTexts,
         meeting.createdBy, // Manager ID
         meeting.teamMemberId || meeting.createdBy, // Use creator as fallback team member
         customApiKey,
         customAiProvider
       );
 
-      // Create structured Task records in the database
-      for (const taskData of assignedTasks) {
+      // Create structured Task records in the database with reasoning
+      for (let i = 0; i < assignedTasks.length; i++) {
+        const taskData = assignedTasks[i];
+        const originalTask = tasksToProcess[i];
         const taskId = crypto.randomUUID();
         const now = new Date();
         
@@ -638,7 +664,8 @@ export class MeetingBaasService {
             "assignedTo", 
             "meetingId", 
             "status", 
-            "createdAt"
+            "createdAt",
+            "reasoning"
           )
           VALUES (
             ${taskId}, 
@@ -646,11 +673,12 @@ export class MeetingBaasService {
             ${taskData.assignedTo}, 
             ${meeting.id}, 
             'incomplete', 
-            ${now}::timestamp
+            ${now}::timestamp,
+            ${originalTask.reasoning}
           )
         `;
         
-        console.log(`Created task "${taskData.text}" assigned to ${taskData.assignedTo} (${taskData.assignmentReason})`);
+        console.log(`Created task "${taskData.text}" assigned to ${taskData.assignedTo} with reasoning: "${originalTask.reasoning}"`);
       }
       
       console.log(`Successfully created ${assignedTasks.length} structured tasks for meeting ${meeting.id}`);

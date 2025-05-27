@@ -21,6 +21,7 @@ export interface NLPResult {
   wins: string[];
   areasForSupport: string[];
   tasks: string[];
+  actionItems?: Array<{ text: string; reasoning: string }>;
   // Add any additional fields needed for specialized meeting types
   keyInsights?: string[];
   followUpQuestions?: string[];

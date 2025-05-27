@@ -22,7 +22,7 @@ export class GeminiService {
     }
     
     try {
-      // Create the system prompt based on meeting type
+      // Create a system prompt for Gemini
       let systemPrompt = 'You are an expert meeting analyzer. Extract the following from the meeting transcript:';
       systemPrompt += '\n- Executive summary (concise overview of the meeting)';
       systemPrompt += '\n- Wins (positive outcomes, achievements, or successes mentioned)';
@@ -39,7 +39,16 @@ export class GeminiService {
       }
       
       // Request JSON format explicitly in the prompt
-      systemPrompt += '\n\nRESPONSE FORMAT: You must respond with a valid JSON object containing these fields: executiveSummary, wins (array), areasForSupport (array), actionItems (array), and keyInsights (array). Use snake_case alternatives if you prefer (executive_summary, areas_for_support, action_items, key_insights).';
+      systemPrompt += '\n\nRESPONSE FORMAT: You must respond with a valid JSON object containing these fields:';
+      systemPrompt += '\n- executiveSummary: string';
+      systemPrompt += '\n- wins: array of strings';
+      systemPrompt += '\n- areasForSupport: array of strings';
+      systemPrompt += '\n- actionItems: array of objects with "text" and "reasoning" fields';
+      systemPrompt += '\n- keyInsights: array of strings';
+      systemPrompt += '\n\nFor actionItems, each item should be an object like:';
+      systemPrompt += '\n{"text": "Schedule follow-up meeting with client", "reasoning": "Ensures continued engagement and addresses any remaining concerns from the presentation"}';
+      systemPrompt += '\n\nThe reasoning should explain WHY this action item is important and how it helps achieve the meeting\'s goals or addresses identified needs.';
+      systemPrompt += '\n\nUse snake_case alternatives if you prefer (executive_summary, areas_for_support, action_items, key_insights).';
       
       // Format the meeting transcript (truncate if too long)
       const maxChars = 100000;
@@ -159,11 +168,13 @@ export class GeminiService {
           : Array.isArray(analysisData.areas_for_support) 
             ? analysisData.areas_for_support 
             : [],
-        actionItems: Array.isArray(analysisData.actionItems) 
-          ? analysisData.actionItems 
-          : Array.isArray(analysisData.action_items) 
-            ? analysisData.action_items 
-            : [],
+        actionItems: this.parseActionItems(
+          Array.isArray(analysisData.actionItems) 
+            ? analysisData.actionItems 
+            : Array.isArray(analysisData.action_items) 
+              ? analysisData.action_items 
+              : []
+        ),
         keyInsights: Array.isArray(analysisData.keyInsights) 
           ? analysisData.keyInsights 
           : Array.isArray(analysisData.key_insights) 
@@ -403,5 +414,26 @@ export class GeminiService {
         suggestedTasks: []
       };
     }
+  }
+
+  /**
+   * Parse action items to handle both string and object formats
+   */
+  private static parseActionItems(actionItems: any[]): any[] {
+    return actionItems.map((item: any) => {
+      if (typeof item === 'string') {
+        // Legacy format - convert string to object with empty reasoning
+        return { text: item, reasoning: '' };
+      } else if (typeof item === 'object' && item !== null) {
+        // New format - ensure both text and reasoning fields exist
+        return {
+          text: item.text || '',
+          reasoning: item.reasoning || ''
+        };
+      } else {
+        // Fallback for invalid formats
+        return { text: String(item), reasoning: '' };
+      }
+    });
   }
 } 

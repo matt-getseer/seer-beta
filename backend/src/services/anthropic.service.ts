@@ -42,7 +42,16 @@ export class AnthropicService {
       }
       
       // Request JSON format explicitly in the prompt
-      systemPrompt += '\n\nRESPONSE FORMAT: You must respond with a valid JSON object containing these fields: executiveSummary, wins (array), areasForSupport (array), actionItems (array), and keyInsights (array). Use snake_case alternatives if you prefer (executive_summary, areas_for_support, action_items, key_insights).';
+      systemPrompt += '\n\nRESPONSE FORMAT: You must respond with a valid JSON object containing these fields:';
+      systemPrompt += '\n- executiveSummary: string';
+      systemPrompt += '\n- wins: array of strings';
+      systemPrompt += '\n- areasForSupport: array of strings';
+      systemPrompt += '\n- actionItems: array of objects with "text" and "reasoning" fields';
+      systemPrompt += '\n- keyInsights: array of strings';
+      systemPrompt += '\n\nFor actionItems, each item should be an object like:';
+      systemPrompt += '\n{"text": "Schedule follow-up meeting with client", "reasoning": "Ensures continued engagement and addresses any remaining concerns from the presentation"}';
+      systemPrompt += '\n\nThe reasoning should explain WHY this action item is important and how it helps achieve the meeting\'s goals or addresses identified needs.';
+      systemPrompt += '\n\nUse snake_case alternatives if you prefer (executive_summary, areas_for_support, action_items, key_insights).';
       
       // Format the meeting transcript (truncate if too long)
       const maxChars = 100000; // Claude models have token limits
@@ -109,7 +118,7 @@ export class AnthropicService {
         executiveSummary: analysisData.executiveSummary || analysisData.executive_summary || '',
         wins: analysisData.wins || [],
         areasForSupport: analysisData.areasForSupport || analysisData.areas_for_support || [],
-        actionItems: analysisData.actionItems || analysisData.action_items || [],
+        actionItems: this.parseActionItems(analysisData.actionItems || analysisData.action_items || []),
         keyInsights: analysisData.keyInsights || analysisData.key_insights || [],
         followUpQuestions: analysisData.followUpQuestions || analysisData.follow_up_questions || [],
         clientFeedback: analysisData.clientFeedback || analysisData.client_feedback || []
@@ -468,5 +477,26 @@ The JSON structure must be exactly:
         suggestedTasks: []
       };
     }
+  }
+
+  /**
+   * Parse action items to handle both string and object formats
+   */
+  private static parseActionItems(actionItems: any[]): any[] {
+    return actionItems.map((item: any) => {
+      if (typeof item === 'string') {
+        // Legacy format - convert string to object with empty reasoning
+        return { text: item, reasoning: '' };
+      } else if (typeof item === 'object' && item !== null) {
+        // New format - ensure both text and reasoning fields exist
+        return {
+          text: item.text || '',
+          reasoning: item.reasoning || ''
+        };
+      } else {
+        // Fallback for invalid formats
+        return { text: String(item), reasoning: '' };
+      }
+    });
   }
 } 
