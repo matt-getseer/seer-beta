@@ -65,10 +65,6 @@ export class MeetingBaasService {
         }
       };
       
-      console.log(`Scheduling bot for meeting at ${meetingStartTime.toISOString()}`);
-      console.log(`Bot will be reserved and join 4 minutes before: ${new Date(meetingStartTime.getTime() - 4 * 60 * 1000).toISOString()}`);
-      console.log('Bot payload:', JSON.stringify(botPayload, null, 2));
-      
       // Send bot to the meeting
       const response = await axios.post(
         `${MEETINGBAAS_API_URL}/bots`,
@@ -80,8 +76,6 @@ export class MeetingBaasService {
           }
         }
       );
-
-      console.log(`MeetingBaas bot scheduled successfully. Bot ID: ${response.data.bot_id}`);
 
       return {
         id: response.data.bot_id.toString(),
