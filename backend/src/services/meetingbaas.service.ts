@@ -3,6 +3,8 @@ import { prisma } from '../utils/prisma';
 import { google } from 'googleapis';
 import { NLPService } from './nlp.service';
 import { MeetingType } from './meeting-processor.service';
+import { TaskAssignmentService } from './task-assignment.service';
+import crypto from 'crypto';
 
 // Using singleton Prisma client from utils/prisma
 const MEETINGBAAS_API_URL = process.env.MEETINGBAAS_API_URL || 'https://api.meetingbaas.com';
@@ -401,7 +403,7 @@ export class MeetingBaasService {
       // Store the recording URL if provided in the webhook data
       const recordingUrl = webhookData?.mp4 || '';
       
-      // Update the meeting with NLP results
+      // Update the meeting with NLP results and create structured tasks
       await prisma.meeting.update({
         where: { meetingBaasId },
         data: {
@@ -418,6 +420,11 @@ export class MeetingBaasService {
           ...(nlpResult.clientFeedback ? { clientFeedback: nlpResult.clientFeedback } : {})
         }
       });
+
+      // Create structured tasks with intelligent assignment
+      if (nlpResult.tasks && nlpResult.tasks.length > 0) {
+        await this.createStructuredTasks(meeting, nlpResult.tasks);
+      }
     } catch (error) {
       console.error('Error handling meeting completion:', error);
       throw new Error('Failed to handle meeting completion');
@@ -567,6 +574,89 @@ export class MeetingBaasService {
     } catch (error) {
       console.error('Error deleting Google Calendar event:', error);
       // Don't throw here - we still want to remove the bot even if calendar deletion fails
+    }
+  }
+
+  /**
+   * Create structured tasks with intelligent assignment
+   */
+  private static async createStructuredTasks(meeting: any, tasks: string[]): Promise<void> {
+    try {
+      console.log(`Creating structured tasks for meeting ${meeting.id}`);
+      
+      // Get user's AI preferences for task assignment
+      const user = await prisma.user.findUnique({
+        where: { id: meeting.createdBy },
+        select: { 
+          useCustomAI: true,
+          aiProvider: true,
+          anthropicApiKey: true,
+          openaiApiKey: true,
+          geminiApiKey: true,
+          hasAnthropicKey: true,
+          hasOpenAIKey: true,
+          hasGeminiKey: true
+        }
+      });
+
+      // Determine custom API settings
+      let customApiKey: string | null = null;
+      let customAiProvider: string | null = null;
+      
+      if (user?.useCustomAI) {
+        if (user.aiProvider === 'anthropic' && user.hasAnthropicKey && user.anthropicApiKey) {
+          customApiKey = user.anthropicApiKey;
+          customAiProvider = 'anthropic';
+        } else if (user.aiProvider === 'openai' && user.hasOpenAIKey && user.openaiApiKey) {
+          customApiKey = user.openaiApiKey;
+          customAiProvider = 'openai';
+        } else if (user.aiProvider === 'gemini' && user.hasGeminiKey && user.geminiApiKey) {
+          customApiKey = user.geminiApiKey;
+          customAiProvider = 'gemini';
+        }
+      }
+
+      // Use TaskAssignmentService to intelligently assign tasks
+      // Even without a formal team member, AI can still parse transcript context
+      const assignedTasks = await TaskAssignmentService.assignTasks(
+        tasks,
+        meeting.createdBy, // Manager ID
+        meeting.teamMemberId || meeting.createdBy, // Use creator as fallback team member
+        customApiKey,
+        customAiProvider
+      );
+
+      // Create structured Task records in the database
+      for (const taskData of assignedTasks) {
+        const taskId = crypto.randomUUID();
+        const now = new Date();
+        
+        await prisma.$executeRaw`
+          INSERT INTO "Task" (
+            "id", 
+            "text", 
+            "assignedTo", 
+            "meetingId", 
+            "status", 
+            "createdAt"
+          )
+          VALUES (
+            ${taskId}, 
+            ${taskData.text}, 
+            ${taskData.assignedTo}, 
+            ${meeting.id}, 
+            'incomplete', 
+            ${now}::timestamp
+          )
+        `;
+        
+        console.log(`Created task "${taskData.text}" assigned to ${taskData.assignedTo} (${taskData.assignmentReason})`);
+      }
+      
+      console.log(`Successfully created ${assignedTasks.length} structured tasks for meeting ${meeting.id}`);
+    } catch (error) {
+      console.error('Error creating structured tasks:', error);
+      // Don't throw - we want the meeting completion to succeed even if task creation fails
     }
   }
 } 

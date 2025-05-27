@@ -241,7 +241,7 @@ export class MeetingController {
   }
 
   /**
-   * Migrate legacy string-based tasks to structured ones
+   * Migrate legacy string-based tasks to structured ones with intelligent assignment
    */
   private static async migrateLegacyTasks(meeting: any) {
     try {
@@ -250,9 +250,52 @@ export class MeetingController {
       if (!meeting.tasks || meeting.tasks.length === 0) {
         return;
       }
+
+      // Get user's AI preferences for task assignment
+      const user = await prisma.user.findUnique({
+        where: { id: meeting.createdBy },
+        select: { 
+          useCustomAI: true,
+          aiProvider: true,
+          anthropicApiKey: true,
+          openaiApiKey: true,
+          geminiApiKey: true,
+          hasAnthropicKey: true,
+          hasOpenAIKey: true,
+          hasGeminiKey: true
+        }
+      });
+
+      // Determine custom API settings
+      let customApiKey: string | null = null;
+      let customAiProvider: string | null = null;
       
-      // Create a structured task for each legacy item
-      for (const text of meeting.tasks) {
+      if (user?.useCustomAI) {
+        if (user.aiProvider === 'anthropic' && user.hasAnthropicKey && user.anthropicApiKey) {
+          customApiKey = user.anthropicApiKey;
+          customAiProvider = 'anthropic';
+        } else if (user.aiProvider === 'openai' && user.hasOpenAIKey && user.openaiApiKey) {
+          customApiKey = user.openaiApiKey;
+          customAiProvider = 'openai';
+        } else if (user.aiProvider === 'gemini' && user.hasGeminiKey && user.geminiApiKey) {
+          customApiKey = user.geminiApiKey;
+          customAiProvider = 'gemini';
+        }
+      }
+
+      // Use TaskAssignmentService to intelligently assign tasks
+      const { TaskAssignmentService } = await import('../services/task-assignment.service');
+      const assignedTasks = await TaskAssignmentService.assignTasks(
+        meeting.tasks,
+        meeting.createdBy, // Manager ID
+        meeting.teamMemberId || meeting.createdBy, // Use creator as fallback team member
+        customApiKey,
+        customAiProvider
+      );
+
+      // Create structured Task records with intelligent assignments
+      for (const taskData of assignedTasks) {
+        const taskId = crypto.randomUUID();
         const now = new Date();
         
         await prisma.$executeRaw`
@@ -265,17 +308,19 @@ export class MeetingController {
             "createdAt"
           )
           VALUES (
-            ${crypto.randomUUID()}, 
-            ${text}, 
-            ${meeting.teamMemberId}, 
+            ${taskId}, 
+            ${taskData.text}, 
+            ${taskData.assignedTo}, 
             ${meeting.id}, 
             'incomplete', 
             ${now}::timestamp
           )
         `;
+        
+        console.log(`Migrated task "${taskData.text}" assigned to ${taskData.assignedTo} (${taskData.assignmentReason})`);
       }
       
-      console.log(`Successfully migrated ${meeting.tasks.length} tasks for meeting ${meeting.id}`);
+      console.log(`Successfully migrated ${assignedTasks.length} tasks for meeting ${meeting.id}`);
     } catch (error) {
       console.error('Error migrating legacy tasks:', error);
       // We'll just log the error but continue - migration can be retried later
@@ -731,6 +776,164 @@ export class MeetingController {
       console.error('Error generating agenda:', error);
       return res.status(500).json({ 
         error: 'Failed to generate agenda',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Generate tasks from meeting transcript
+   */
+  static async generateTasks(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      const userRole = req.user?.role;
+      const meetingId = req.params.id;
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
+      
+      console.log(`Generating tasks for meeting ${meetingId} by user: ${userId}, role: ${userRole}`);
+      
+      // Get the meeting
+      const meeting = await prisma.meeting.findUnique({
+        where: { id: meetingId },
+        include: {
+          tasksData: true
+        }
+      });
+      
+      if (!meeting) {
+        return res.status(404).json({ error: 'Meeting not found' });
+      }
+      
+      // Check if user has access to this meeting
+      if (userRole !== 'admin' && meeting.createdBy !== userId && meeting.teamMemberId !== userId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      // Check if meeting has a transcript
+      if (!meeting.transcript) {
+        return res.status(400).json({ error: 'Meeting has no transcript to generate tasks from' });
+      }
+      
+      // Check if the user has custom AI settings
+      const user = await prisma.user.findUnique({
+        where: { id: meeting.createdBy },
+        select: { 
+          useCustomAI: true,
+          aiProvider: true,
+          anthropicApiKey: true,
+          openaiApiKey: true,
+          geminiApiKey: true,
+          hasAnthropicKey: true,
+          hasOpenAIKey: true,
+          hasGeminiKey: true
+        }
+      });
+      
+      // Determine which AI service to use
+      let customApiKey: string | null = null;
+      let customAiProvider: string | null = null;
+      
+      if (user?.useCustomAI) {
+        if (user.aiProvider === 'anthropic' && user.hasAnthropicKey && user.anthropicApiKey) {
+          customApiKey = user.anthropicApiKey;
+          customAiProvider = 'anthropic';
+        } else if (user.aiProvider === 'openai' && user.hasOpenAIKey && user.openaiApiKey) {
+          customApiKey = user.openaiApiKey;
+          customAiProvider = 'openai';
+        } else if (user.aiProvider === 'gemini' && user.hasGeminiKey && user.geminiApiKey) {
+          customApiKey = user.geminiApiKey;
+          customAiProvider = 'gemini';
+        }
+      }
+      
+      // Get team member name for personalization
+      const teamMember = await prisma.user.findUnique({
+        where: { id: meeting.teamMemberId },
+        select: { name: true, email: true }
+      });
+      
+      const teamMemberName = teamMember?.name || teamMember?.email?.split('@')[0] || 'Team Member';
+      const firstName = teamMemberName.split(' ')[0]; // Extract first name
+      
+      // Process the transcript to extract tasks
+      const { MeetingProcessorService, MeetingType } = await import('../services/meeting-processor.service');
+      
+      // Use ONE_ON_ONE meeting type as that's what the system is configured for
+      const nlpResult = await MeetingProcessorService.processMeetingTranscript(
+        meetingId,
+        meeting.transcript,
+        MeetingType.ONE_ON_ONE
+      );
+      
+      // Update the meeting with the extracted tasks
+      await prisma.meeting.update({
+        where: { id: meetingId },
+        data: {
+          tasks: nlpResult.tasks,
+          // Also update other fields if they were extracted
+          ...(nlpResult.executiveSummary && !meeting.executiveSummary ? { executiveSummary: nlpResult.executiveSummary } : {}),
+          ...(nlpResult.wins && nlpResult.wins.length > 0 && (!meeting.wins || meeting.wins.length === 0) ? { wins: nlpResult.wins } : {}),
+          ...(nlpResult.areasForSupport && nlpResult.areasForSupport.length > 0 && (!meeting.areasForSupport || meeting.areasForSupport.length === 0) ? { areasForSupport: nlpResult.areasForSupport } : {}),
+        }
+      });
+      
+      // Create structured tasks with intelligent assignment if tasks were found
+      if (nlpResult.tasks && nlpResult.tasks.length > 0) {
+        const { TaskAssignmentService } = await import('../services/task-assignment.service');
+        
+        // Use TaskAssignmentService to intelligently assign tasks
+        const assignedTasks = await TaskAssignmentService.assignTasks(
+          nlpResult.tasks,
+          meeting.createdBy, // Manager ID
+          meeting.teamMemberId || meeting.createdBy, // Use creator as fallback team member
+          customApiKey,
+          customAiProvider,
+          firstName // Team member's first name for personalization
+        );
+
+        // Create structured Task records in the database
+        for (const taskData of assignedTasks) {
+          const taskId = crypto.randomUUID();
+          const now = new Date();
+          
+          await prisma.$executeRaw`
+            INSERT INTO "Task" (
+              "id", 
+              "text", 
+              "assignedTo", 
+              "meetingId", 
+              "status", 
+              "createdAt"
+            )
+            VALUES (
+              ${taskId}, 
+              ${taskData.text}, 
+              ${taskData.assignedTo}, 
+              ${meeting.id}, 
+              'incomplete', 
+              ${now}::timestamp
+            )
+          `;
+          
+          console.log(`Created task "${taskData.text}" assigned to ${taskData.assignedTo} (${taskData.assignmentReason})`);
+        }
+        
+        console.log(`Successfully created ${assignedTasks.length} structured tasks for meeting ${meeting.id}`);
+      }
+      
+      return res.status(200).json({ 
+        message: 'Tasks generated successfully',
+        tasksCount: nlpResult.tasks?.length || 0,
+        tasks: nlpResult.tasks || []
+      });
+    } catch (error) {
+      console.error('Error generating tasks:', error);
+      return res.status(500).json({ 
+        error: 'Failed to generate tasks',
         details: error instanceof Error ? error.message : String(error)
       });
     }

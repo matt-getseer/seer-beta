@@ -74,4 +74,7 @@ router.post('/webhook', verifyMeetingBaasWebhook, MeetingWebhookController.handl
 // Generate agenda for a meeting
 router.get('/:meetingId/agenda', requireAuth, MeetingController.generateAgenda);
 
+// Generate tasks for a meeting
+router.post('/:id/generate-tasks', requireAuth, MeetingController.generateTasks);
+
 export default router; 

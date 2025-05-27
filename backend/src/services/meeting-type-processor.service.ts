@@ -64,6 +64,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
+          tasks: (claudeResult as any).actionItems || [],
         };
       }
       
@@ -75,6 +76,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
+          tasks: (openaiResult as any).actionItems || [],
         };
       }
       
@@ -86,6 +88,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...geminiResult,
+          tasks: (geminiResult as any).actionItems || [],
         };
       }
       
@@ -134,6 +137,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
+          tasks: (claudeResult as any).actionItems || [],
         };
       }
       
@@ -148,6 +152,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
+          tasks: (openaiResult as any).actionItems || [],
         };
       }
       
@@ -162,6 +167,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...geminiResult,
+          tasks: (geminiResult as any).actionItems || [],
         };
       }
       
@@ -205,6 +211,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
+          tasks: (claudeResult as any).actionItems || [],
         };
       }
       
@@ -219,6 +226,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
+          tasks: (openaiResult as any).actionItems || [],
         };
       }
       
@@ -255,6 +263,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
+          tasks: (claudeResult as any).actionItems || [],
         };
       }
       
@@ -269,6 +278,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
+          tasks: (openaiResult as any).actionItems || [],
         };
       }
       
@@ -312,6 +322,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...claudeResult,
+          tasks: (claudeResult as any).actionItems || [],
         };
       }
       
@@ -326,6 +337,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...openaiResult,
+          tasks: (openaiResult as any).actionItems || [],
         };
       }
       
@@ -340,6 +352,7 @@ export class MeetingTypeProcessorService {
         return {
           ...baseResult,
           ...geminiResult,
+          tasks: (geminiResult as any).actionItems || [],
         };
       }
       

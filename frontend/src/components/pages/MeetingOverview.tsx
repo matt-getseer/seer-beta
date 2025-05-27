@@ -59,6 +59,7 @@ const MeetingOverview = () => {
   const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [agendaError, setAgendaError] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [generatingTasks, setGeneratingTasks] = useState(false);
   
   useEffect(() => {
     const fetchMeeting = async () => {
@@ -261,6 +262,58 @@ const MeetingOverview = () => {
       setSidebarVisible(false);
       setSelectedTask(null);
     }, 300);
+  };
+
+  // Generate tasks from transcript
+  const generateTasks = async () => {
+    if (!meeting || !meeting.transcript || !meeting.id) return;
+    
+    setGeneratingTasks(true);
+    try {
+      const token = await getToken();
+      const response = await axios.post(`${API_URL}/api/meetings/${meeting.id}/generate-tasks`, {}, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      // Refresh the meeting data to get the new tasks
+      const updatedMeetingResponse = await axios.get(`${API_URL}/api/meetings/${meeting.id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      // Process tasks the same way as in the initial fetch
+      let processedTasks = [];
+      
+      if (updatedMeetingResponse.data.tasksData && updatedMeetingResponse.data.tasksData.length > 0) {
+        processedTasks = updatedMeetingResponse.data.tasksData.map((item: Omit<Task, 'assigneeName'>) => ({
+          id: item.id,
+          text: item.text,
+          status: item.status as 'incomplete' | 'complete',
+          createdAt: item.createdAt,
+          completedAt: item.completedAt,
+          assignedTo: item.assignedTo,
+          assigneeName: item.assignedTo === currentUserId ? 'Me' : (item.assignedTo ? teamMembers.find(m => m.id === item.assignedTo)?.name : undefined)
+        }));
+      }
+      
+      // Update the meeting state with new tasks
+      setMeeting(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: processedTasks
+        };
+      });
+      
+    } catch (error) {
+      console.error('Error generating tasks:', error);
+      // You could add a toast notification here for better UX
+    } finally {
+      setGeneratingTasks(false);
+    }
   };
   
   return (
@@ -489,8 +542,17 @@ const MeetingOverview = () => {
                           </div>
                         ))
                       ) : (
-                        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-                          <p className="text-gray-500 italic">No tasks identified</p>
+                        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm text-center">
+                          <p className="text-gray-500 italic mb-3">No tasks identified</p>
+                          {meeting.transcript && (
+                            <button
+                              onClick={generateTasks}
+                              disabled={generatingTasks}
+                              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {generatingTasks ? 'Generating...' : 'Generate Tasks'}
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>

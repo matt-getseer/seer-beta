@@ -37,9 +37,19 @@ async function migrateAllTasks() {
         continue;
       }
       
-      // Migrate each legacy task
+      // Use TaskAssignmentService to intelligently assign tasks
+      const { TaskAssignmentService } = await import('../services/task-assignment.service');
+      const assignedTasks = await TaskAssignmentService.assignTasks(
+        meeting.tasks,
+        meeting.createdBy, // Manager ID
+        meeting.teamMemberId || meeting.createdBy, // Use creator as fallback team member
+        null, // No custom API key for migration script
+        null  // No custom AI provider for migration script
+      );
+
+      // Migrate each legacy task with intelligent assignment
       let migratedCount = 0;
-      for (const text of meeting.tasks) {
+      for (const taskData of assignedTasks) {
         const now = new Date();
         const id = crypto.randomUUID();
         
@@ -54,14 +64,15 @@ async function migrateAllTasks() {
           )
           VALUES (
             ${id}, 
-            ${text}, 
-            ${meeting.teamMemberId}, 
+            ${taskData.text}, 
+            ${taskData.assignedTo}, 
             ${meeting.id}, 
             'incomplete', 
             ${now}::timestamp
           )
         `;
         
+        console.log(`  Migrated task "${taskData.text}" assigned to ${taskData.assignedTo} (${taskData.assignmentReason})`);
         migratedCount++;
       }
       

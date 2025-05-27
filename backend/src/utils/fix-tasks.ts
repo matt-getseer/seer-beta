@@ -36,22 +36,33 @@ async function migrateTasks() {
         continue;
       }
       
-      // Migrate each legacy task
+      // Use TaskAssignmentService to intelligently assign tasks
+      const { TaskAssignmentService } = await import('../services/task-assignment.service');
+      const assignedTasks = await TaskAssignmentService.assignTasks(
+        meeting.tasks,
+        meeting.createdBy, // Manager ID
+        meeting.teamMemberId || meeting.createdBy, // Use creator as fallback team member
+        null, // No custom API key for migration script
+        null  // No custom AI provider for migration script
+      );
+
+      // Migrate each legacy task with intelligent assignment
       let migratedCount = 0;
       
-      for (const text of meeting.tasks) {
+      for (const taskData of assignedTasks) {
         // Create new structured task
         await prisma.task.create({
           data: {
             id: crypto.randomUUID(),
-            text: text,
+            text: taskData.text,
             status: 'incomplete',
-            assignedTo: meeting.teamMemberId,
+            assignedTo: taskData.assignedTo,
             meetingId: meeting.id,
             createdAt: new Date()
           }
         });
         
+        console.log(`  Migrated task "${taskData.text}" assigned to ${taskData.assignedTo} (${taskData.assignmentReason})`);
         migratedCount++;
       }
       
