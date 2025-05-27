@@ -316,16 +316,6 @@ const TaskSidebar = ({
                     </Listbox>
                   </div>
                 </div>
-                
-                {/* Dates */}
-                {task.completedAt && (
-                  <div className="mb-6">
-                    <h3 className="text-sm font-medium text-gray-500 mb-2">Completed</h3>
-                    <div className="text-gray-700">
-                      {new Date(task.completedAt).toLocaleString()}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>

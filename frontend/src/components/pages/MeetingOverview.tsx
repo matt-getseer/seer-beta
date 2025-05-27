@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, VideoCamera, Check, Clock } from 'phosphor-react';
+import { ArrowLeft, VideoCamera, Check, Clock, CheckCircle } from 'phosphor-react';
 import { useAuth } from '@clerk/clerk-react';
 import VideoPlayer from '../VideoPlayer';
 import TaskSidebar from '../TaskSidebar';
@@ -451,43 +451,47 @@ const MeetingOverview = () => {
                   {/* Tasks */}
                   <div>
                     <h2 className="text-lg font-medium text-gray-900 mb-4">Tasks</h2>
-                    <div className="bg-blue-50 p-4 rounded-lg">
+                    <div className="space-y-3">
                       {meeting.tasks && meeting.tasks.length > 0 ? (
-                        <ul className="space-y-3">
-                          {meeting.tasks.map((task, index) => (
-                            <li key={task.id || index} className="flex items-start justify-between">
-                              <div className="flex items-start flex-1 min-w-0">
-                                <button
-                                  onClick={() => toggleTaskStatus(task)}
-                                  className={`flex-shrink-0 mt-0.5 mr-3 w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-                                    task.status === 'complete'
-                                      ? 'bg-green-500 border-green-500 text-white'
-                                      : 'border-gray-300 hover:border-green-400'
-                                  }`}
+                        meeting.tasks.map((task, index) => (
+                          <div 
+                            key={task.id || index} 
+                            className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer relative"
+                            onClick={() => handleTaskClick(task)}
+                          >
+                            <div className="flex items-start flex-1 min-w-0">
+                              <div className="flex-1 min-w-0">
+                                <div
+                                  className="text-left w-full text-base transition-colors text-gray-700"
                                 >
-                                  {task.status === 'complete' && <Check size={12} />}
-                                </button>
-                                <div className="flex-1 min-w-0">
-                                  <button
-                                    onClick={() => handleTaskClick(task)}
-                                    className={`text-left w-full text-sm transition-colors hover:text-blue-600 ${
-                                      task.status === 'complete' ? 'line-through text-gray-500' : 'text-gray-700'
-                                    }`}
-                                  >
-                                    {task.text}
-                                  </button>
-                                  <div className="mt-1">
-                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getAssignmentBadgeClass(!!task.assignedTo)}`}>
-                                      {task.assigneeName || 'Unassigned'}
-                                    </span>
-                                  </div>
+                                  {task.text}
+                                </div>
+                                <div className="mt-3">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                    task.assignedTo && task.assigneeName !== 'Me'
+                                      ? 'bg-indigo-100 text-indigo-800' 
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {task.assigneeName || 'Unassigned'}
+                                  </span>
                                 </div>
                               </div>
-                            </li>
-                          ))}
-                        </ul>
+                            </div>
+                            <div className="absolute bottom-3 right-3">
+                              {task.status === 'complete' ? (
+                                <CheckCircle size={20} weight="fill" className="text-green-600" />
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                                  In Progress
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))
                       ) : (
-                        <p className="text-gray-500 italic">No tasks identified</p>
+                        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                          <p className="text-gray-500 italic">No tasks identified</p>
+                        </div>
                       )}
                     </div>
                   </div>
