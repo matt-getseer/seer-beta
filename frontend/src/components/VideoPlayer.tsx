@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause } from 'phosphor-react';
+import { Play, Pause, Warning } from 'phosphor-react';
 import SpeakerTimeline from './SpeakerTimeline';
 import { parseTranscriptToSpeakerData } from '../utils/transcriptParser';
 import type { SpeakerData } from '../utils/transcriptParser';
@@ -14,6 +14,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, transcript }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speakers, setSpeakers] = useState<SpeakerData[]>([]);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   
   // Parse transcript when duration changes or transcript updates
@@ -24,28 +26,51 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, transcript }) => {
     }
   }, [transcript, duration]);
   
+  // Handle video loading errors
+  const handleVideoError = () => {
+    setVideoError('Unable to load video. The recording may not be available or there may be a network issue.');
+    setIsLoading(false);
+  };
+
+  // Handle video loading start
+  const handleLoadStart = () => {
+    setIsLoading(true);
+    setVideoError(null);
+  };
+
+  // Handle when video can start playing
+  const handleCanPlay = () => {
+    setIsLoading(false);
+    setVideoError(null);
+  };
+  
   // Toggle play/pause
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
+  const togglePlay = async () => {
+    if (videoRef.current && !videoError) {
+      try {
+        if (isPlaying) {
+          videoRef.current.pause();
+          setIsPlaying(false);
+        } else {
+          await videoRef.current.play();
+          setIsPlaying(true);
+        }
+      } catch (error) {
+        console.error('Error playing video:', error);
+        setVideoError('Unable to play video. Please try refreshing the page.');
       }
-      setIsPlaying(!isPlaying);
     }
   };
   
   // Seek to a specific time
   const handleSeek = (time: number) => {
-    if (videoRef.current) {
+    if (videoRef.current && !videoError) {
       videoRef.current.currentTime = time;
       setCurrentTime(time);
       
       // Auto-play when seeking
       if (!isPlaying) {
-        videoRef.current.play();
-        setIsPlaying(true);
+        togglePlay();
       }
     }
   };
@@ -70,6 +95,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, transcript }) => {
     const seconds = Math.floor(time % 60);
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
+
+  // Show error state
+  if (videoError) {
+    return (
+      <div className="w-full max-w-4xl mx-auto bg-white rounded-lg overflow-hidden shadow-sm">
+        <div className="relative bg-gray-100 aspect-video flex items-center justify-center">
+          <div className="text-center p-8">
+            <Warning size={48} className="text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Video Unavailable</h3>
+            <p className="text-gray-600 max-w-md">{videoError}</p>
+            <button
+              onClick={() => {
+                setVideoError(null);
+                setIsLoading(true);
+                if (videoRef.current) {
+                  videoRef.current.load();
+                }
+              }}
+              className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div className="w-full max-w-4xl mx-auto bg-white rounded-lg overflow-hidden shadow-sm">
@@ -81,31 +133,45 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, transcript }) => {
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onEnded={() => setIsPlaying(false)}
+          onError={handleVideoError}
+          onLoadStart={handleLoadStart}
+          onCanPlay={handleCanPlay}
           controls={false} // Hide native controls
         />
         
+        {/* Loading overlay */}
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          </div>
+        )}
+        
         {/* Play/Pause Button Overlay */}
-        <button
-          className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-20 hover:bg-opacity-30 transition-opacity"
-          onClick={togglePlay}
-        >
-          {isPlaying ? (
-            <Pause size={48} color="#ffffff" weight="fill" />
-          ) : (
-            <Play size={48} color="#ffffff" weight="fill" />
-          )}
-        </button>
+        {!isLoading && (
+          <button
+            className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-20 hover:bg-opacity-30 transition-opacity"
+            onClick={togglePlay}
+          >
+            {isPlaying ? (
+              <Pause size={48} color="#ffffff" weight="fill" />
+            ) : (
+              <Play size={48} color="#ffffff" weight="fill" />
+            )}
+          </button>
+        )}
       </div>
       
       {/* Progress Bar */}
       <div className="py-2 px-4">
         <div className="relative h-2 bg-gray-200 rounded-full cursor-pointer" 
           onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const offsetX = e.clientX - rect.left;
-            const percentage = offsetX / rect.width;
-            const newTime = percentage * duration;
-            handleSeek(newTime);
+            if (!videoError) {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const offsetX = e.clientX - rect.left;
+              const percentage = offsetX / rect.width;
+              const newTime = percentage * duration;
+              handleSeek(newTime);
+            }
           }}
         >
           <div 

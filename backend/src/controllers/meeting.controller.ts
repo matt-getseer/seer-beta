@@ -464,12 +464,16 @@ export class MeetingController {
   static async getMeetingChanges(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
+      const userRole = req.user?.role;
+      
+      console.log(`getMeetingChanges: userId=${userId}, userRole=${userRole}`);
       
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
       }
       
       const meetingId = req.params.id;
+      console.log(`getMeetingChanges: meetingId=${meetingId}`);
       
       // Validate the meeting exists and user has access to it
       const meeting = await prisma.meeting.findUnique({
@@ -480,13 +484,19 @@ export class MeetingController {
       });
       
       if (!meeting) {
+        console.log(`getMeetingChanges: Meeting not found for id=${meetingId}`);
         return res.status(404).json({ error: 'Meeting not found' });
       }
       
+      console.log(`getMeetingChanges: meeting.createdBy=${meeting.createdBy}, meeting.teamMemberId=${meeting.teamMemberId}`);
+      
       // Check if the user is the admin who created the meeting or the team member
-      const isAuthorized = meeting.createdBy === userId || meeting.teamMemberId === userId;
+      const isAuthorized = meeting.createdBy === userId || meeting.teamMemberId === userId || userRole === 'admin';
+      
+      console.log(`getMeetingChanges: isAuthorized=${isAuthorized} (createdBy match: ${meeting.createdBy === userId}, teamMember match: ${meeting.teamMemberId === userId}, isAdmin: ${userRole === 'admin'})`);
       
       if (!isAuthorized) {
+        console.log(`getMeetingChanges: User ${userId} not authorized to view meeting ${meetingId}`);
         return res.status(403).json({ error: 'Not authorized to view this meeting' });
       }
       
@@ -495,6 +505,8 @@ export class MeetingController {
         where: { meetingId },
         orderBy: { createdAt: 'desc' }
       });
+      
+      console.log(`getMeetingChanges: Found ${changes.length} changes for meeting ${meetingId}`);
       
       return res.status(200).json(changes);
     } catch (error) {

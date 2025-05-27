@@ -4,6 +4,15 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      // Ensure proper resolution of lodash modules
+      'lodash/get': 'lodash/get.js',
+      'lodash/isString': 'lodash/isString.js',
+      'lodash/isNaN': 'lodash/isNaN.js',
+      'lodash/isNumber': 'lodash/isNumber.js'
+    }
+  },
   build: {
     // Optimize chunk sizes
     chunkSizeWarningLimit: 1000,
@@ -65,12 +74,15 @@ export default defineConfig({
       'react',
       'react-dom',
       'react-router-dom',
-      '@clerk/clerk-react'
+      '@clerk/clerk-react',
+      'lodash/get',
+      'lodash/isString',
+      'lodash/isNaN',
+      'lodash/isNumber'
     ],
     exclude: [
       '@sentry/browser',
-      '@sentry/react',
-      'recharts' // Lazy loaded
+      '@sentry/react'
     ]
   },
   // Enable experimental features for better performance
