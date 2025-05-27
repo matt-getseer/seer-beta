@@ -51,10 +51,22 @@ export class TeamController {
         where: { adminId }
       });
       
+      const pendingInvitationsCount = await prisma.teamInvitation.count({
+        where: {
+          inviterId: adminId,
+          status: 'pending',
+          expires: { gt: new Date() }
+        }
+      });
+      
+      // Total count should include the admin (1) + members + pending invitations
+      const totalCount = 1 + memberCount + pendingInvitationsCount;
+      
       res.json({ 
-        canInvite: memberCount < 4,
+        canInvite: totalCount < 4,
         currentCount: memberCount,
-        remainingInvites: 4 - memberCount
+        pendingInvitations: pendingInvitationsCount,
+        remainingInvites: 4 - totalCount
       });
     } catch (error) {
       console.error('Error checking invitation ability:', error);
@@ -189,11 +201,23 @@ export class TeamController {
         where: { adminId }
       });
       
-      if (memberCount >= 4) {
+      const pendingInvitationsCount = await prisma.teamInvitation.count({
+        where: {
+          inviterId: adminId,
+          status: 'pending',
+          expires: { gt: new Date() }
+        }
+      });
+      
+      // Total count should include the admin (1) + members + pending invitations  
+      const totalCount = 1 + memberCount + pendingInvitationsCount;
+      
+      if (totalCount >= 4) {
         return res.status(403).json({ 
           error: 'You have reached the maximum number of team members',
           canInvite: false,
           currentCount: memberCount,
+          pendingInvitations: pendingInvitationsCount,
           remainingInvites: 0
         });
       }
@@ -267,7 +291,7 @@ export class TeamController {
         where: { adminId }
       });
       
-      const pendingInvitationsCount = await prisma.teamInvitation.count({
+      const updatedPendingInvitationsCount = await prisma.teamInvitation.count({
         where: {
           inviterId: adminId,
           status: 'pending',
@@ -279,10 +303,10 @@ export class TeamController {
         success: true,
         message: `Invitation sent to ${email}`,
         inviteStatus: {
-          canInvite: (updatedMemberCount + pendingInvitationsCount) < 4,
+          canInvite: (1 + updatedMemberCount + updatedPendingInvitationsCount) < 4,
           currentCount: updatedMemberCount,
-          pendingInvitations: pendingInvitationsCount,
-          remainingInvites: 4 - updatedMemberCount - pendingInvitationsCount
+          pendingInvitations: updatedPendingInvitationsCount,
+          remainingInvites: 4 - (1 + updatedMemberCount + updatedPendingInvitationsCount)
         }
       });
     } catch (error) {

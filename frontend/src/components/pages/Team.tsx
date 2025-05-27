@@ -152,7 +152,7 @@ const Team = () => {
     };
 
     fetchData();
-  }, [isSignedIn, user, isAdmin]);
+  }, [isSignedIn, user]);
 
   // formatDate function now imported from utils/dateUtils
   
@@ -216,6 +216,14 @@ const Team = () => {
       // Update the invite status with the new counts
       if (response.inviteStatus) {
         setInviteStatus(response.inviteStatus);
+      }
+      
+      // Refresh pending invitations list
+      try {
+        const updatedInvitations = await userApi.getPendingInvitations();
+        setPendingInvitations(updatedInvitations);
+      } catch (error) {
+        console.error('Failed to refresh invitations:', error);
       }
       
       // Reset the form and close the modal
