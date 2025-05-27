@@ -190,6 +190,15 @@ const MeetingOverview = () => {
         };
       });
       
+      // Update selected task if it's the one being updated
+      if (selectedTask && selectedTask.id === task.id) {
+        setSelectedTask({ 
+          ...selectedTask, 
+          status: newStatus, 
+          completedAt: newStatus === 'complete' ? new Date().toISOString() : undefined 
+        });
+      }
+      
       // Close sidebar if task was completed
       if (newStatus === 'complete') {
         closeSidebar();

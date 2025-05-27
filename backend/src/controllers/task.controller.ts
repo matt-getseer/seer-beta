@@ -227,7 +227,7 @@ export class TaskController {
         
         // If marking as complete, set completedAt
         if (status === 'complete' && !task.completedAt) {
-          updateFields.push('"completedAt" = $' + (updateValues.length + 1));
+          updateFields.push('"completedAt" = $' + (updateValues.length + 1) + '::timestamp');
           updateValues.push(new Date().toISOString());
         }
         // If marking as incomplete, clear completedAt
@@ -259,7 +259,7 @@ export class TaskController {
       }
       
       if (completedAt !== undefined && canEdit) {
-        updateFields.push('"completedAt" = $' + (updateValues.length + 1));
+        updateFields.push('"completedAt" = $' + (updateValues.length + 1) + '::timestamp');
         updateValues.push(completedAt);
       }
       
