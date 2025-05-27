@@ -248,6 +248,40 @@ const MeetingOverview = () => {
     }
   };
 
+  // Handle task text update
+  const updateTaskText = async (task: Task, updates: Partial<Task>) => {
+    if (!meeting || !meeting.id) return;
+    
+    try {
+      const token = await getToken();
+      await axios.patch(`${API_URL}/api/meetings/${meeting.id}/tasks/${task.id}`, updates, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      // Update the meeting state
+      setMeeting(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks?.map(t => 
+            t.id === task.id 
+              ? { ...t, ...updates }
+              : t
+          ) || []
+        };
+      });
+      
+      // Update selected task if it's the one being updated
+      if (selectedTask && selectedTask.id === task.id) {
+        setSelectedTask({ ...selectedTask, ...updates });
+      }
+    } catch (error) {
+      console.error('Error updating task text:', error);
+    }
+  };
+
   // Handle task click
   const handleTaskClick = (task: Task) => {
     setSelectedTask(task);
@@ -677,6 +711,7 @@ const MeetingOverview = () => {
         onClose={closeSidebar}
         onStatusToggle={toggleTaskStatus}
         onAssignmentUpdate={updateTaskAssignment}
+        onTaskUpdate={updateTaskText}
       />
     </div>
   );

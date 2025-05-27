@@ -13,6 +13,7 @@ interface TaskSidebarProps {
   onClose: () => void;
   onStatusToggle: (task: Task) => void;
   onAssignmentUpdate: (task: Task, teamMemberId: string) => void;
+  onTaskUpdate?: (task: Task, updates: Partial<Task>) => void;
 }
 
 const TaskSidebar = ({
@@ -24,12 +25,16 @@ const TaskSidebar = ({
   teamMemberName,
   onClose,
   onStatusToggle,
-  onAssignmentUpdate
+  onAssignmentUpdate,
+  onTaskUpdate
 }: TaskSidebarProps) => {
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [assignmentDropdownOpen, setAssignmentDropdownOpen] = useState(false);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [editedDescription, setEditedDescription] = useState('');
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const assignmentDropdownRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Handle outside clicks for dropdowns
   useEffect(() => {
@@ -47,6 +52,50 @@ const TaskSidebar = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current && isEditingDescription) {
+      const textarea = textareaRef.current;
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
+  }, [isEditingDescription, editedDescription]);
+
+  // Initialize edited description when starting to edit
+  const startEditing = () => {
+    if (task) {
+      setEditedDescription(task.text);
+      setIsEditingDescription(true);
+    }
+  };
+
+  // Save description changes
+  const saveDescription = () => {
+    if (task && onTaskUpdate && editedDescription.trim() !== '') {
+      onTaskUpdate(task, { text: editedDescription.trim() });
+    }
+    setIsEditingDescription(false);
+  };
+
+  // Cancel editing
+  const cancelEditing = () => {
+    setIsEditingDescription(false);
+    setEditedDescription('');
+  };
+
+  // Handle key presses in textarea
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      saveDescription();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEditing();
+    }
+  };
 
   // Status options for dropdown
   const statusOptions = [
@@ -128,87 +177,36 @@ const TaskSidebar = ({
               <div className="px-4 sm:px-6 flex-1">
                 {/* Task Text */}
                 <div className="mb-8 pt-4">
-                  <h2 className="text-xl text-gray-900">
-                    {task.text}
-                  </h2>
+                  {isEditingDescription ? (
+                    <textarea
+                      ref={textareaRef}
+                      value={editedDescription}
+                      onChange={(e) => setEditedDescription(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      onBlur={saveDescription}
+                      className="w-full text-xl text-gray-900 bg-transparent border-none outline-none resize-none overflow-hidden leading-relaxed px-1 py-1 rounded -mx-1 -my-1"
+                      style={{ 
+                        minHeight: '1.5em',
+                        fontFamily: 'inherit',
+                        lineHeight: '1.625',
+                        resize: 'none',
+                        margin: '0'
+                      }}
+                      placeholder="Enter task description..."
+                    />
+                  ) : (
+                    <h2 
+                      className="text-xl text-gray-900 cursor-pointer hover:bg-gray-50 rounded px-1 py-1 -mx-1 transition-colors leading-relaxed"
+                      onClick={startEditing}
+                      title="Click to edit"
+                    >
+                      {task.text}
+                    </h2>
+                  )}
                 </div>
                 
-                {/* Status and Assignment Side by Side */}
+                {/* Assignment and Status Side by Side */}
                 <div className="mb-6 flex gap-4">
-                  {/* Status Dropdown */}
-                  <div className="flex-1">
-                    <Listbox value={task.status} onChange={handleStatusChange}>
-                      <div className="relative" ref={statusDropdownRef}>
-                        <Listbox.Button 
-                          className="relative w-full cursor-pointer rounded-md bg-white py-2 pl-3 pr-10 text-left border border-gray-300 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 text-base h-10"
-                          onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                        >
-                          <span className="flex items-center">
-                            <span className="mr-3">
-                              {statusOptions.find(option => option.id === task.status)?.icon}
-                            </span>
-                            <span className="block truncate">
-                              {statusOptions.find(option => option.id === task.status)?.name}
-                            </span>
-                          </span>
-                          <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
-                            <CaretDown
-                              size={16}
-                              className="text-gray-400"
-                              aria-hidden="true"
-                            />
-                          </span>
-                        </Listbox.Button>
-                        <Transition
-                          as={Fragment}
-                          show={statusDropdownOpen}
-                          enter="transition ease-out duration-100"
-                          enterFrom="transform opacity-0 scale-95"
-                          enterTo="transform opacity-100 scale-100"
-                          leave="transition ease-in duration-75"
-                          leaveFrom="transform opacity-100 scale-100"
-                          leaveTo="transform opacity-0 scale-95"
-                        >
-                          <Listbox.Options className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
-                            {statusOptions.map((option) => (
-                              <Listbox.Option
-                                key={option.id}
-                                className={({ active }) =>
-                                  `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
-                                    active ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
-                                  }`
-                                }
-                                value={option.id}
-                              >
-                                {({ selected }) => (
-                                  <>
-                                    <span className="flex items-center">
-                                      <span className="mr-3">
-                                        {option.icon}
-                                      </span>
-                                      <span
-                                        className={`block truncate ${
-                                          selected ? 'font-medium' : 'font-normal'
-                                        }`}
-                                      >
-                                        {option.name}
-                                      </span>
-                                    </span>
-                                    {selected ? (
-                                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-blue-600">
-                                        <Check size={16} aria-hidden="true" />
-                                      </span>
-                                    ) : null}
-                                  </>
-                                )}
-                              </Listbox.Option>
-                            ))}
-                          </Listbox.Options>
-                        </Transition>
-                      </div>
-                    </Listbox>
-                  </div>
-                  
                   {/* Assignment */}
                   <div className="flex-1">
                     <Listbox value={task.assignedTo || ''} onChange={(value) => { onAssignmentUpdate(task, value); setAssignmentDropdownOpen(false); }}>
@@ -310,6 +308,80 @@ const TaskSidebar = ({
                                 )}
                               </Listbox.Option>
                             )}
+                          </Listbox.Options>
+                        </Transition>
+                      </div>
+                    </Listbox>
+                  </div>
+                  
+                  {/* Status Dropdown */}
+                  <div className="flex-1">
+                    <Listbox value={task.status} onChange={handleStatusChange}>
+                      <div className="relative" ref={statusDropdownRef}>
+                        <Listbox.Button 
+                          className="relative w-full cursor-pointer rounded-md bg-white py-2 pl-3 pr-10 text-left border border-gray-300 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 text-base h-10"
+                          onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                        >
+                          <span className="flex items-center">
+                            <span className="mr-3">
+                              {statusOptions.find(option => option.id === task.status)?.icon}
+                            </span>
+                            <span className="block truncate">
+                              {statusOptions.find(option => option.id === task.status)?.name}
+                            </span>
+                          </span>
+                          <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                            <CaretDown
+                              size={16}
+                              className="text-gray-400"
+                              aria-hidden="true"
+                            />
+                          </span>
+                        </Listbox.Button>
+                        <Transition
+                          as={Fragment}
+                          show={statusDropdownOpen}
+                          enter="transition ease-out duration-100"
+                          enterFrom="transform opacity-0 scale-95"
+                          enterTo="transform opacity-100 scale-100"
+                          leave="transition ease-in duration-75"
+                          leaveFrom="transform opacity-100 scale-100"
+                          leaveTo="transform opacity-0 scale-95"
+                        >
+                          <Listbox.Options className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                            {statusOptions.map((option) => (
+                              <Listbox.Option
+                                key={option.id}
+                                className={({ active }) =>
+                                  `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
+                                    active ? 'bg-blue-100 text-blue-900' : 'text-gray-900'
+                                  }`
+                                }
+                                value={option.id}
+                              >
+                                {({ selected }) => (
+                                  <>
+                                    <span className="flex items-center">
+                                      <span className="mr-3">
+                                        {option.icon}
+                                      </span>
+                                      <span
+                                        className={`block truncate ${
+                                          selected ? 'font-medium' : 'font-normal'
+                                        }`}
+                                      >
+                                        {option.name}
+                                      </span>
+                                    </span>
+                                    {selected ? (
+                                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-blue-600">
+                                        <Check size={16} aria-hidden="true" />
+                                      </span>
+                                    ) : null}
+                                  </>
+                                )}
+                              </Listbox.Option>
+                            ))}
                           </Listbox.Options>
                         </Transition>
                       </div>
