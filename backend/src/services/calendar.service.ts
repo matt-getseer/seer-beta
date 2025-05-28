@@ -24,12 +24,19 @@ interface CalendarIntegrationData {
 }
 
 interface MeetingBaasCalendarResponse {
-  id: string;
-  provider: string;
-  status: string;
-  created_at: string;
-  raw_calendar_id: string;
-  calendar_name: string;
+  calendar: {
+    id?: string;
+    uuid?: string;
+    google_id?: string;
+    name: string;
+    email: string;
+    resource_id?: string;
+    provider?: string;
+    status?: string;
+    created_at?: string;
+    raw_calendar_id?: string;
+    calendar_name?: string;
+  };
 }
 
 interface CalendarMeetingData {
@@ -81,14 +88,14 @@ export class CalendarService {
         throw new Error(`${integrationData.provider} OAuth credentials not configured`);
       }
 
-      // Call MeetingBaas API to setup calendar integration using the correct endpoint
+      // Call MeetingBaas API to setup calendar integration using the correct field names
       const response = await axios.post(
         `${this.MEETINGBAAS_API_URL}/calendars`,
         {
-          provider: integrationData.provider,
-          refresh_token: integrationData.refreshToken,
-          client_id: clientId,
-          client_secret: clientSecret,
+          platform: integrationData.provider === 'google' ? 'Google' : 'Microsoft',
+          oauth_refresh_token: integrationData.refreshToken,
+          oauth_client_id: clientId,
+          oauth_client_secret: clientSecret,
           raw_calendar_id: integrationData.rawCalendarId // Optional - defaults to primary calendar
         },
         {
@@ -103,15 +110,22 @@ export class CalendarService {
       
       console.log('MeetingBaas calendar integration created:', meetingBaasCalendar);
 
+      // Get the calendar ID from the response (could be 'id' or 'uuid')
+      const calendarId = meetingBaasCalendar.calendar.id || meetingBaasCalendar.calendar.uuid;
+      
+      if (!calendarId) {
+        throw new Error('MeetingBaas API response missing calendar ID/UUID');
+      }
+
       // Store the integration in our database with the real MeetingBaas calendar ID
       const calendarIntegration = await prismaClient.calendarIntegration.create({
         data: {
           userId,
           provider: integrationData.provider,
-          calendarId: meetingBaasCalendar.id, // Use the real MeetingBaas calendar ID
-          externalCalendarId: meetingBaasCalendar.raw_calendar_id,
+          calendarId: calendarId, // Use the MeetingBaas calendar ID
+          externalCalendarId: meetingBaasCalendar.calendar.raw_calendar_id || 'primary',
           refreshToken: integrationData.refreshToken,
-          isActive: meetingBaasCalendar.status === 'active' || meetingBaasCalendar.status === 'syncing'
+          isActive: meetingBaasCalendar.calendar.status === 'active' || meetingBaasCalendar.calendar.status === 'syncing'
         }
       });
 
@@ -303,10 +317,10 @@ export class CalendarService {
       const response = await axios.post(
         `${this.MEETINGBAAS_API_URL}/calendars/raw`,
         {
-          provider,
-          refresh_token: refreshToken,
-          client_id: actualClientId,
-          client_secret: actualClientSecret
+          platform: provider === 'google' ? 'Google' : 'Microsoft',
+          oauth_refresh_token: refreshToken,
+          oauth_client_id: actualClientId,
+          oauth_client_secret: actualClientSecret
         },
         {
           headers: {
