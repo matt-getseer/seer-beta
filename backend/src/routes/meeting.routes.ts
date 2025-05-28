@@ -70,6 +70,9 @@ router.put('/:id', isAdmin, MeetingController.updateMeeting);
 // Delete a meeting - only admin can delete meetings
 router.delete('/:id', isAdmin, MeetingController.deleteMeeting);
 
+// Bot management routes
+router.post('/:meetingId/bot', requireAuth, MeetingController.addBotToMeeting);
+
 // Webhook endpoint for meeting completion
 // Apply webhook verification middleware
 router.post('/webhook', verifyMeetingBaasWebhook, MeetingWebhookController.handleMeetingCompleted);

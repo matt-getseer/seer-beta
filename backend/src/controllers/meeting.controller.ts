@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
-import { MeetingBaasService } from '../services/meetingbaas.service';
-import dotenv from 'dotenv';
 import { prisma } from '../utils/prisma';
+import { MeetingBaasCalendarService } from '../services/meetingbaas/calendar.service';
+import { MeetingBaasBotService } from '../services/meetingbaas/bot.service';
+import { NLPService } from '../services/nlp.service';
+import { TaskAssignmentService } from '../services/task-assignment.service';
+import { MeetingProcessorService } from '../services/meeting-processor.service';
+import dotenv from 'dotenv';
 import { withRetry, formatDbError } from '../utils/db-helpers';
 import crypto from 'crypto';
 
@@ -338,7 +342,7 @@ export class MeetingController {
         return res.status(401).json({ error: 'User not authenticated' });
       }
       
-      const { title, teamMemberId, date, duration, meetingType } = req.body;
+      const { title, teamMemberId, date, duration, meetingType, meetingUrl, platform = 'google_meet' } = req.body;
       
       // Validate required fields
       if (!title || !teamMemberId || !date || !duration) {
@@ -361,57 +365,92 @@ export class MeetingController {
         });
       }
       
-      // Create meeting with MeetingBaas
       const meetingDate = new Date(date);
-      try {
-        console.log(`Creating meeting with title: "${title}", teamMemberId: "${teamMemberId}", date: ${meetingDate}, duration: ${duration}`);
-        
-        // Use MeetingBaas calendar integration
-        console.log('Using MeetingBaas calendar integration');
-        const meetingBaasResponse = await MeetingBaasService.createMeetingWithCalendar({
+      
+      // Create meeting in our database first
+      const meeting = await prisma.meeting.create({
+        data: {
           title,
-          scheduledTime: meetingDate,
-          duration: Number(duration),
-          platform: 'google_meet', // Default to Google Meet for now
-          userId,
           teamMemberId,
-          calendarProvider: 'google' // Default to Google calendar
-        });
+          date: meetingDate,
+          duration: Number(duration),
+          status: 'scheduled',
+          processingStatus: 'pending',
+          platform: platform,
+          createdBy: userId,
+          meetingType: meetingType || "one_on_one",
+          wins: [],
+          areasForSupport: [],
+          tasks: []
+        } as any
+      });
+      
+      console.log(`Meeting created in database: ${meeting.id}`);
+      
+      // If a meeting URL is provided, create a bot for it
+      if (meetingUrl) {
+        try {
+          console.log(`Creating bot for provided meeting URL: ${meetingUrl}`);
+          
+          const botService = new MeetingBaasBotService();
+          const botResponse = await botService.createBotWithDefaults(
+            meetingUrl,
+            userId,
+            {
+              meetingId: meeting.id,
+              teamMemberId,
+              customBotName: 'Seer Meeting Bot'
+            }
+          );
+          
+          console.log(`Bot created: ${botResponse.botId}`);
+          
+          // Update meeting with bot details
+          const updatedMeeting = await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
+              platformMeetingUrl: meetingUrl,
+              googleMeetLink: meetingUrl,
+              meetingBaasId: botResponse.botId,
+              processingStatus: 'pending'
+            }
+          });
+          
+          return res.status(201).json({
+            ...updatedMeeting,
+            message: 'Meeting created and bot scheduled successfully'
+          });
+          
+        } catch (botError) {
+          console.error('Error creating bot for meeting:', botError);
+          
+          // Update meeting status but don't fail the entire request
+          await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
+              platformMeetingUrl: meetingUrl,
+              processingStatus: 'failed'
+            }
+          });
+          
+          return res.status(201).json({
+            ...meeting,
+            platformMeetingUrl: meetingUrl,
+            processingStatus: 'failed',
+            message: 'Meeting created but bot scheduling failed',
+            botError: botError instanceof Error ? botError.message : String(botError)
+          });
+        }
+      } else {
+        // No meeting URL provided - meeting created without bot
+        console.log('No meeting URL provided, meeting created without bot');
         
-        console.log(`MeetingBaas response: ${JSON.stringify(meetingBaasResponse)}`);
-        
-        // Create meeting in our database
-        const meeting = await prisma.meeting.create({
-          data: {
-            title,
-            teamMemberId,
-            date: meetingDate,
-            duration: Number(duration),
-            status: 'scheduled',
-            processingStatus: 'pending',
-            platform: 'google_meet',
-            platformMeetingUrl: meetingBaasResponse.platformMeetingUrl,
-            googleMeetLink: meetingBaasResponse.googleMeetLink,
-            meetingBaasId: meetingBaasResponse.id,
-            calendarEventId: meetingBaasResponse.calendarEventId,
-            calendarProvider: 'google',
-            createdBy: userId,
-            meetingType: "one_on_one",
-            wins: [],
-            areasForSupport: [],
-            tasks: []
-          } as any
-        });
-        
-        return res.status(201).json(meeting);
-      } catch (mbError) {
-        console.error('Error with MeetingBaas service:', mbError);
-        return res.status(500).json({ 
-          error: 'Failed to create meeting with MeetingBaas', 
-          details: mbError instanceof Error ? mbError.message : String(mbError),
-          note: 'This could be due to invalid API credentials or connection issues with the MeetingBaas service'
+        return res.status(201).json({
+          ...meeting,
+          message: 'Meeting created successfully. Add a meeting URL later to enable recording.'
         });
       }
+      
     } catch (error) {
       console.error('Error creating meeting:', error);
       return res.status(500).json({ 
@@ -484,10 +523,17 @@ export class MeetingController {
         return res.status(403).json({ error: 'Only administrators can delete meetings' });
       }
       
-      // Check if meeting exists
+      // Check if meeting exists and get all necessary data for cleanup
       const existingMeeting = await prisma.meeting.findUnique({
         where: {
           id: meetingId
+        },
+        select: {
+          id: true,
+          title: true,
+          calendarEventId: true,
+          meetingBaasId: true,
+          createdBy: true
         }
       });
       
@@ -495,14 +541,36 @@ export class MeetingController {
         return res.status(404).json({ error: 'Meeting not found' });
       }
       
-      // Note: Calendar event deletion is now handled automatically by MeetingBaas calendar integration
-      // when the meeting is deleted from the database via webhooks
+      console.log(`Deleting meeting ${meetingId}: calendarEventId=${existingMeeting.calendarEventId}, meetingBaasId=${existingMeeting.meetingBaasId}`);
       
-      // Delete meeting from database
+      // Clean up MeetingBaas bot if it exists
+      if (existingMeeting.meetingBaasId) {
+        try {
+          // TODO: Implement bot cleanup when MeetingBaas bot service supports it
+          console.log(`Meeting has MeetingBaas bot ${existingMeeting.meetingBaasId} - cleanup not yet implemented`);
+        } catch (botError) {
+          console.error(`Error cleaning up MeetingBaas bot ${existingMeeting.meetingBaasId}:`, botError);
+          // Continue with deletion even if bot cleanup fails
+        }
+      }
+
+      // Clean up calendar event if it exists
+      if (existingMeeting.calendarEventId) {
+        try {
+          // TODO: Implement calendar event cleanup when MeetingBaas calendar service supports it
+          console.log(`Meeting has calendar event ${existingMeeting.calendarEventId} - cleanup not yet implemented`);
+        } catch (calendarError) {
+          console.error(`Error cleaning up calendar event ${existingMeeting.calendarEventId}:`, calendarError);
+          // Continue with deletion even if calendar cleanup fails
+        }
+      }
+      
+      // Step 3: Delete meeting from database
       await prisma.meeting.delete({
         where: { id: meetingId }
       });
       
+      console.log(`Successfully deleted meeting ${meetingId} and cleaned up associated resources`);
       return res.status(204).send();
     } catch (error) {
       console.error('Error deleting meeting:', error);
@@ -937,6 +1005,115 @@ export class MeetingController {
       console.error('Error generating task suggestions:', error);
       return res.status(500).json({ 
         error: 'Failed to generate task suggestions',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  /**
+   * Add a bot to an existing meeting
+   */
+  static async addBotToMeeting(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      const { meetingId } = req.params;
+      const { meetingUrl } = req.body;
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
+      
+      if (!meetingUrl) {
+        return res.status(400).json({ error: 'Meeting URL is required' });
+      }
+      
+      // Check if API key is configured
+      if (!process.env.MEETINGBAAS_API_KEY) {
+        return res.status(500).json({ 
+          error: 'MeetingBaas API key not configured',
+          details: 'Please add MEETINGBAAS_API_KEY to your environment variables'
+        });
+      }
+      
+      // Find the meeting
+      const meeting = await prisma.meeting.findUnique({
+        where: { id: meetingId },
+        include: { user: true }
+      });
+      
+      if (!meeting) {
+        return res.status(404).json({ error: 'Meeting not found' });
+      }
+      
+      // Check if user has permission to modify this meeting
+      if (meeting.createdBy !== userId) {
+        return res.status(403).json({ error: 'Not authorized to modify this meeting' });
+      }
+      
+      // Check if meeting already has a bot
+      if (meeting.meetingBaasId) {
+        return res.status(400).json({ 
+          error: 'Meeting already has a bot scheduled',
+          botId: meeting.meetingBaasId
+        });
+      }
+      
+      try {
+        console.log(`Adding bot to meeting ${meetingId} with URL: ${meetingUrl}`);
+        
+        const botService = new MeetingBaasBotService();
+        const botResponse = await botService.createBotWithDefaults(
+          meetingUrl,
+          userId,
+          {
+            meetingId: meeting.id,
+            teamMemberId: meeting.teamMemberId,
+            customBotName: 'Seer Meeting Bot'
+          }
+        );
+        
+        console.log(`Bot created: ${botResponse.botId}`);
+        
+        // Update meeting with bot details
+        const updatedMeeting = await prisma.meeting.update({
+          where: { id: meetingId },
+          data: {
+            platformMeetingUrl: meetingUrl,
+            googleMeetLink: meetingUrl,
+            meetingBaasId: botResponse.botId,
+            processingStatus: 'pending',
+            updatedAt: new Date()
+          }
+        });
+        
+        return res.json({
+          ...updatedMeeting,
+          message: 'Bot added to meeting successfully'
+        });
+        
+      } catch (botError) {
+        console.error('Error adding bot to meeting:', botError);
+        
+        // Update meeting with URL but mark bot creation as failed
+        await prisma.meeting.update({
+          where: { id: meetingId },
+          data: {
+            platformMeetingUrl: meetingUrl,
+            processingStatus: 'failed',
+            updatedAt: new Date()
+          }
+        });
+        
+        return res.status(500).json({
+          error: 'Failed to add bot to meeting',
+          details: botError instanceof Error ? botError.message : String(botError)
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error adding bot to meeting:', error);
+      return res.status(500).json({ 
+        error: 'Failed to add bot to meeting',
         details: error instanceof Error ? error.message : String(error)
       });
     }

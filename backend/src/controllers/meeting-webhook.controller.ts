@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../utils/prisma';
 import { MeetingBaasService } from '../services/meetingbaas.service';
-import { CalendarService } from '../services/calendar.service';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
@@ -88,12 +87,10 @@ export class MeetingWebhookController {
           }
         }
       }
-      // Handle calendar events using the new CalendarService
+      // Handle calendar events using the new MeetingBaas calendar service
       else if (isCalendarEvent(eventType)) {
-        await CalendarService.handleCalendarWebhook({
-          event_type: eventType,
-          data: data
-        });
+        console.log(`Calendar event ${eventType} received but handling not yet implemented`);
+        // TODO: Implement calendar webhook handling when MeetingBaas calendar service supports it
       }
       
       // Always return success to acknowledge receipt of the webhook
@@ -108,18 +105,15 @@ export class MeetingWebhookController {
   }
 
   /**
-   * Handle calendar event webhooks (legacy method - now delegated to CalendarService)
+   * Handle calendar event webhooks (legacy method - now delegated to MeetingBaas calendar service)
    * This method is kept for backward compatibility
    */
   static async handleCalendarEvent(eventType: string, data: any) {
     try {
       console.log(`Processing calendar event via legacy handler: ${eventType}`);
       
-      // Delegate to the new CalendarService
-      await CalendarService.handleCalendarWebhook({
-        event_type: eventType,
-        data: data
-      });
+      // TODO: Implement calendar webhook handling when MeetingBaas calendar service supports it
+      console.log('Calendar event handling not yet implemented');
       
     } catch (error) {
       console.error('Error handling calendar event:', error);

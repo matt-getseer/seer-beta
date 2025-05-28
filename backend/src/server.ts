@@ -8,7 +8,9 @@ import webhookRoutes from './routes/webhook.routes';
 import userRoutes from './routes/user.routes';
 import meetingRoutes from './routes/meeting.routes';
 import authRoutes from './routes/auth.routes';
+import meetingBaasRoutes from './routes/meetingbaas.routes';
 import { authenticate } from './middleware/auth.middleware';
+import { meetingBaasScheduler } from './services/meetingbaas/scheduler.service';
 
 // Load environment variables
 dotenv.config();
@@ -68,6 +70,7 @@ app.get('/api/health', async (req, res) => {
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api/webhooks') && 
       !req.path.startsWith('/api/meetings/webhook') &&
+      !req.path.startsWith('/api/meetingbaas/webhooks') &&
       !req.path.startsWith('/api/health')) {
     return authenticate(req, res, next);
   }
@@ -79,6 +82,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/meetings', meetingRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/meetingbaas', meetingBaasRoutes);
 
 // Basic route
 app.get('/', (req, res) => {
@@ -101,6 +105,18 @@ async function startServer() {
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
     console.log(`Health check available at http://localhost:${PORT}/api/health`);
+    
+    // Start MeetingBaas scheduler if database is connected
+    if (dbConnected) {
+      try {
+        meetingBaasScheduler.start();
+        console.log('✅ MeetingBaas scheduler started successfully');
+      } catch (error) {
+        console.error('❌ Failed to start MeetingBaas scheduler:', error);
+      }
+    } else {
+      console.log('⏸️ MeetingBaas scheduler not started due to database connection issues');
+    }
   });
 }
 
@@ -109,6 +125,19 @@ startServer();
 
 // Handle shutdown
 process.on('SIGINT', async () => {
+  console.log('Shutting down gracefully...');
+  
+  // Stop the scheduler
+  try {
+    meetingBaasScheduler.stop();
+    console.log('✅ MeetingBaas scheduler stopped');
+  } catch (error) {
+    console.error('❌ Error stopping MeetingBaas scheduler:', error);
+  }
+  
+  // Disconnect from database
   await prisma.$disconnect();
+  console.log('✅ Database disconnected');
+  
   process.exit(0);
 }); 

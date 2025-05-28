@@ -161,7 +161,8 @@ router.get('/google/callback', async (req, res) => {
       // Automatically set up MeetingBaas calendar integration
       try {
         console.log('Automatically setting up MeetingBaas calendar integration...');
-        const { CalendarService } = await import('../services/calendar.service');
+        const { MeetingBaasCalendarService } = await import('../services/meetingbaas/calendar.service');
+        const calendarService = new MeetingBaasCalendarService();
         
         // Check if calendar integration already exists
         const existingIntegration = await prisma.calendarIntegration.findFirst({
@@ -173,10 +174,11 @@ router.get('/google/callback', async (req, res) => {
         });
 
         if (!existingIntegration) {
-          const calendarIntegration = await CalendarService.setupCalendarIntegration(updatedUser.id, {
-            provider: 'google',
-            refreshToken: tokens.refresh_token
-          });
+          const calendarIntegration = await calendarService.setupCalendarIntegration(
+            updatedUser.id,
+            'google',
+            tokens.refresh_token
+          );
           
           console.log('✅ MeetingBaas calendar integration created automatically:', calendarIntegration.calendarId);
           
@@ -280,12 +282,13 @@ router.post('/google/disconnect', authenticate, requireAuth, async (req, res) =>
       console.log(`Found ${calendarIntegrations.length} Google calendar integrations to delete`);
       
       // First, delete calendar integrations from MeetingBaas (only for active ones)
-      const { CalendarService } = await import('../services/calendar.service');
+      const { MeetingBaasCalendarService } = await import('../services/meetingbaas/calendar.service');
+      const calendarService = new MeetingBaasCalendarService();
       
       for (const integration of calendarIntegrations) {
         if (integration.isActive) {
           try {
-            await CalendarService.deleteCalendarIntegration(integration.calendarId);
+            await calendarService.deleteCalendarIntegration(user.id, 'google');
           } catch (deleteError) {
             console.error(`Failed to delete calendar ${integration.calendarId} from MeetingBaas:`, deleteError);
             // Continue with other deletions even if one fails
@@ -352,7 +355,8 @@ router.post('/google/setup-calendar', authenticate, requireAuth, async (req, res
     }
 
     // Import CalendarService to set up integration
-    const { CalendarService } = await import('../services/calendar.service');
+    const { MeetingBaasCalendarService } = await import('../services/meetingbaas/calendar.service');
+    const calendarService = new MeetingBaasCalendarService();
 
     // Check if calendar integration already exists
     const existingIntegration = await prisma.calendarIntegration.findFirst({
@@ -372,10 +376,11 @@ router.post('/google/setup-calendar', authenticate, requireAuth, async (req, res
     }
 
     // Set up calendar integration with MeetingBaas
-    const calendarIntegration = await CalendarService.setupCalendarIntegration(user.id, {
-      provider: 'google',
-      refreshToken: user.googleRefreshToken
-    });
+    const calendarIntegration = await calendarService.setupCalendarIntegration(
+      user.id,
+      'google',
+      user.googleRefreshToken
+    );
 
     console.log('Calendar integration created successfully:', calendarIntegration);
 

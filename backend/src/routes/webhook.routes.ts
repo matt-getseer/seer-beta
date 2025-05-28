@@ -12,7 +12,7 @@ router.post('/clerk', handleClerkWebhook);
 router.post('/calendar', verifyMeetingBaasWebhook, CalendarWebhookController.handleCalendarWebhook);
 
 // Google Calendar specific webhook route (for direct Google Calendar webhooks if needed)
-router.post('/google-calendar', verifyMeetingBaasWebhook, CalendarWebhookController.handleGoogleCalendarWebhook);
+router.post('/google-calendar', verifyMeetingBaasWebhook, CalendarWebhookController.handleCalendarWebhook);
 
 // Calendar webhook health check (no auth needed for health checks)
 router.get('/calendar/health', CalendarWebhookController.healthCheck);
