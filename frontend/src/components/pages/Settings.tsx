@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
-import { Listbox, Transition } from '@headlessui/react';
+import { Listbox, Transition, Dialog } from '@headlessui/react';
 import { CaretDown, Check } from 'phosphor-react';
 
 // Use a direct URL reference instead of process.env
@@ -10,7 +10,7 @@ const API_URL = 'http://localhost:3001';
 const Settings = () => {
   const [googleConnected, setGoogleConnected] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [refreshTrigger, setRefreshTrigger] = useState(0); // Add refresh trigger counter
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const { getToken } = useAuth();
   
   // Calendar integration status
@@ -23,7 +23,11 @@ const Settings = () => {
   
   // Disconnect confirmation dialog
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
+  const [disconnectConfirmText, setDisconnectConfirmText] = useState('');
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [showAIDisconnectDialog, setShowAIDisconnectDialog] = useState(false);
+  const [aiDisconnectConfirmText, setAiDisconnectConfirmText] = useState('');
+  const [isDisconnectingAI, setIsDisconnectingAI] = useState(false);
   
   // AI Processing states
   const [useCustomAI, setUseCustomAI] = useState(false);
@@ -70,26 +74,26 @@ const Settings = () => {
         setCalendarIntegrationStatus({
           show: true,
           type: 'success',
-          message: `✅ Google account connected and MeetingBaas calendar integration set up successfully!${calendarId ? ` Calendar ID: ${calendarId}` : ''}`,
+          message: `✅ Google Calendar connected successfully! MeetingBaas integration is ready.${calendarId ? ` Calendar ID: ${calendarId}` : ''}`,
           calendarId: calendarId || undefined
         });
       } else if (calendarExists === 'true') {
         setCalendarIntegrationStatus({
           show: true,
-          type: 'info',
-          message: '✅ Google account connected! Calendar integration already exists.'
+          type: 'success',
+          message: '✅ Google Calendar connected successfully! Integration already exists.'
         });
       } else if (calendarError) {
         setCalendarIntegrationStatus({
           show: true,
           type: 'error',
-          message: `⚠️ Google account connected, but calendar integration failed: ${decodeURIComponent(calendarError)}`
+          message: `⚠️ Google Calendar connected, but MeetingBaas integration failed: ${decodeURIComponent(calendarError)}`
         });
       } else {
         setCalendarIntegrationStatus({
           show: true,
           type: 'success',
-          message: '✅ Google account connected successfully!'
+          message: '✅ Google Calendar connected successfully!'
         });
       }
       
@@ -98,7 +102,7 @@ const Settings = () => {
         const newUrl = window.location.pathname;
         window.history.replaceState({}, document.title, newUrl);
         setCalendarIntegrationStatus(prev => ({ ...prev, show: false }));
-      }, 8000); // Show for 8 seconds
+      }, 8000);
     }
 
     // Check if Google account is connected directly from the database
@@ -106,24 +110,33 @@ const Settings = () => {
       try {
         setLoading(true);
         const token = await getToken();
-        // Checking Google connection status
         const response = await axios.get(`${API_URL}/api/auth/google/status`, {
           headers: {
             Authorization: `Bearer ${token}`
           },
-          withCredentials: true // Include cookies
+          withCredentials: true
         });
-        // Google connection response received
         
-        // Force the state to update based on API response
-        if (response.data && typeof response.data.connected === 'boolean') {
-          setGoogleConnected(response.data.connected);
-          // Setting Google connection status
-        } else {
-          // Unexpected API response format
+        if (response.data) {
+          // Use fullyConnected (OAuth + Calendar Integration) for the main connection status
+          setGoogleConnected(response.data.fullyConnected || false);
+          
+          // Show warning if OAuth is connected but calendar integration is missing
+          if (response.data.connected && !response.data.hasCalendarIntegration) {
+            setCalendarIntegrationStatus({
+              show: true,
+              type: 'error',
+              message: '⚠️ Google OAuth connected but calendar integration is missing. Please reconnect to restore full functionality.'
+            });
+            
+            // Clear warning after 10 seconds
+            setTimeout(() => {
+              setCalendarIntegrationStatus(prev => ({ ...prev, show: false }));
+            }, 10000);
+          }
         }
       } catch (error) {
-        // Error checking Google connection from database
+        console.error('Error checking Google connection:', error);
       } finally {
         setLoading(false);
       }
@@ -147,48 +160,42 @@ const Settings = () => {
           setUseCustomAI(settings.useCustomAI || false);
           setAiProvider(settings.aiProvider || 'anthropic');
           setAiConnected(settings.hasValidApiKey || false);
-          // We don't retrieve API keys for security reasons, only the status
         }
       } catch (error) {
-        // Error fetching AI settings
+        console.error('Error fetching AI settings:', error);
       } finally {
         setAiLoading(false);
       }
     };
     
     fetchAISettings();
-  }, [getToken, refreshTrigger]); // Add refreshTrigger as dependency
+  }, [getToken, refreshTrigger]);
 
   // Function to manually refresh connection status
   const refreshConnectionStatus = () => {
-    // Manually refreshing connection status
     setRefreshTrigger(prev => prev + 1);
   };
 
   const handleGoogleAuth = async () => {
     if (googleConnected) {
-      // For disconnect, show confirmation dialog instead of immediate action
       setShowDisconnectDialog(true);
     } else {
-      // Connect Google account - get token first
       try {
         setLoading(true);
         const token = await getToken();
         
-        // First send token to backend to store in session
         const response = await axios.post(`${API_URL}/api/auth/google/prepare`, { token }, { 
-          withCredentials: true // Include cookies
+          withCredentials: true
         });
         
-        // Then redirect to Google OAuth URL
         if (response.data.authUrl) {
           window.location.href = response.data.authUrl;
         } else {
-          // No auth URL returned from server
+          console.error('No auth URL returned from server');
           setLoading(false);
         }
       } catch (error) {
-        // Error starting Google auth flow
+        console.error('Error starting Google auth flow:', error);
         setLoading(false);
       }
     }
@@ -196,89 +203,86 @@ const Settings = () => {
   
   const confirmDisconnectGoogle = async () => {
     try {
-      setLoading(true);
+      setIsDisconnecting(true);
       const token = await getToken();
-      await axios.post(`${API_URL}/api/auth/google/disconnect`, {}, {
+      const response = await axios.post(`${API_URL}/api/auth/google/disconnect`, {}, {
         headers: {
           Authorization: `Bearer ${token}`
         },
-        withCredentials: true // Include cookies
+        withCredentials: true
       });
+      
       setGoogleConnected(false);
-    } catch (error) {
-      // Error disconnecting Google account
-    } finally {
-      setLoading(false);
-      setShowDisconnectDialog(false);
-    }
-  };
-  
-  const setupCalendarIntegration = async () => {
-    try {
-      setLoading(true);
-      const token = await getToken();
       
-      const response = await axios.post(`${API_URL}/api/auth/google/setup-calendar`, {}, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+      // Show success message
+      setCalendarIntegrationStatus({
+        show: true,
+        type: 'success',
+        message: `✅ Google Calendar disconnected successfully! ${response.data.calendarIntegrationsRemoved || 0} calendar integration(s) removed.`
       });
       
-      if (response.data.success) {
-        setCalendarIntegrationStatus({
-          show: true,
-          type: 'success',
-          message: response.data.message,
-          calendarId: response.data.calendarId
-        });
-        
-        // Clear message after 5 seconds
-        setTimeout(() => {
-          setCalendarIntegrationStatus(prev => ({ ...prev, show: false }));
-        }, 5000);
-      }
-    } catch (error: any) {
+      // Clear success message after 5 seconds
+      setTimeout(() => {
+        setCalendarIntegrationStatus(prev => ({ ...prev, show: false }));
+      }, 5000);
+      
+    } catch (error) {
+      console.error('Error disconnecting Google account:', error);
+      
+      // Show error message
       setCalendarIntegrationStatus({
         show: true,
         type: 'error',
-        message: `Failed to set up calendar integration: ${error.response?.data?.details || error.message}`
+        message: '❌ Failed to disconnect Google Calendar. Please try again.'
       });
       
       // Clear error message after 8 seconds
       setTimeout(() => {
         setCalendarIntegrationStatus(prev => ({ ...prev, show: false }));
       }, 8000);
+      
     } finally {
-      setLoading(false);
+      setIsDisconnecting(false);
+      setShowDisconnectDialog(false);
+      setDisconnectConfirmText('');
     }
+  };
+  
+  const handleDisconnectCancel = () => {
+    setShowDisconnectDialog(false);
+    setDisconnectConfirmText('');
   };
   
   const confirmDisconnectAI = async () => {
     try {
-      setAiLoading(true);
+      setIsDisconnectingAI(true);
       const token = await getToken();
       await axios.post(`${API_URL}/api/users/ai-settings`, {
         useCustomAI: false,
         aiProvider: aiProvider,
-        apiKey: "" // Empty API key to disconnect
+        apiKey: ""
       }, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
-      // Turn off the toggle and set connection status to false
       setUseCustomAI(false);
       setAiConnected(false);
-      // Clear API keys from state for security
       setAnthropicApiKey('');
       setOpenaiApiKey('');
       setGeminiApiKey('');
     } catch (error) {
-      // Error disconnecting AI provider
+      console.error('Error disconnecting AI provider:', error);
     } finally {
-      setAiLoading(false);
+      setIsDisconnectingAI(false);
       setShowAIDisconnectDialog(false);
+      setAiDisconnectConfirmText('');
     }
+  };
+  
+  const handleAIDisconnectCancel = () => {
+    setShowAIDisconnectDialog(false);
+    setAiDisconnectConfirmText('');
   };
   
   const saveAISettings = async () => {
@@ -303,17 +307,15 @@ const Settings = () => {
       setAiSaveSuccess(true);
       setAiConnected(true);
       
-      // Clear API keys from state for security
       setAnthropicApiKey('');
       setOpenaiApiKey('');
       setGeminiApiKey('');
       
-      // Set timeout to clear success message after 3 seconds
       setTimeout(() => {
         setAiSaveSuccess(false);
       }, 3000);
     } catch (error) {
-      // Error saving AI settings
+      console.error('Error saving AI settings:', error);
       setAiSaveError('Failed to save AI settings. Please try again.');
     } finally {
       setIsSavingAI(false);
@@ -354,7 +356,7 @@ const Settings = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-medium text-[#171717]">Google Calendar</h3>
-                <p className="text-sm text-gray-500">Connect your Google account to create Google Meet links for meetings</p>
+                <p className="text-sm text-gray-500">Connect your Google account to automatically create Google Meet links and enable calendar integration</p>
               </div>
               {loading ? (
                 <div className="animate-pulse h-10 w-24 bg-gray-200 rounded-md"></div>
@@ -376,15 +378,6 @@ const Settings = () => {
                   >
                     {googleConnected ? 'Disconnect' : 'Connect'}
                   </button>
-                  {googleConnected && (
-                    <button
-                      onClick={setupCalendarIntegration}
-                      className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-700"
-                      title="Set up MeetingBaas calendar integration"
-                    >
-                      Setup Calendar
-                    </button>
-                  )}
                   <button
                     onClick={refreshConnectionStatus}
                     className="px-3 py-2 rounded-md text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200"
@@ -607,56 +600,175 @@ const Settings = () => {
       </div>
       
       {/* Disconnect confirmation dialog */}
-      {showDisconnectDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Disconnect Google Calendar?</h3>
-            <p className="text-sm text-gray-500 mb-6">
-              This will remove the Google Calendar integration. You won't be able to create Google Meet links for meetings until you reconnect.
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setShowDisconnectDialog(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+      <Transition appear show={showDisconnectDialog} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={handleDisconnectCancel}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-black bg-opacity-25" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4 text-center">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
               >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDisconnectGoogle}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
-              >
-                Disconnect
-              </button>
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+                  <Dialog.Title
+                    as="h3"
+                    className="text-lg font-medium leading-6 text-gray-900"
+                  >
+                    Disconnect Google Calendar
+                  </Dialog.Title>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to disconnect your Google Calendar? This will:
+                    </p>
+                    <ul className="text-sm text-gray-500 mt-2 list-disc list-inside space-y-1">
+                      <li>Remove your Google OAuth connection</li>
+                      <li>Delete all MeetingBaas calendar integrations</li>
+                      <li>Disable Google Meet link creation</li>
+                      <li>Remove all calendar-related data and settings</li>
+                    </ul>
+                    <p className="text-sm text-red-600 mt-2 font-medium">
+                      You'll need to reconnect to use calendar features again.
+                    </p>
+                    
+                    <div className="mt-4">
+                      <label htmlFor="confirm-disconnect" className="block text-sm font-medium text-gray-700 mb-1">
+                        Type DISCONNECT to confirm
+                      </label>
+                      <input
+                        type="text"
+                        id="confirm-disconnect"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500"
+                        value={disconnectConfirmText}
+                        onChange={(e) => setDisconnectConfirmText(e.target.value)}
+                        placeholder="DISCONNECT"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
+                      onClick={handleDisconnectCancel}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50"
+                      onClick={confirmDisconnectGoogle}
+                      disabled={isDisconnecting || disconnectConfirmText !== 'DISCONNECT'}
+                    >
+                      {isDisconnecting ? 'Disconnecting...' : 'Disconnect Calendar'}
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
             </div>
           </div>
-        </div>
-      )}
+        </Dialog>
+      </Transition>
       
       {/* AI Disconnect confirmation dialog */}
-      {showAIDisconnectDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Disconnect AI Provider?</h3>
-            <p className="text-sm text-gray-500 mb-6">
-              This will remove your custom AI credentials. Meeting data processing will use default system credentials until you reconnect.
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setShowAIDisconnectDialog(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+      <Transition appear show={showAIDisconnectDialog} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={handleAIDisconnectCancel}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-black bg-opacity-25" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4 text-center">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
               >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDisconnectAI}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
-              >
-                Disconnect
-              </button>
+                <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+                  <Dialog.Title
+                    as="h3"
+                    className="text-lg font-medium leading-6 text-gray-900"
+                  >
+                    Disconnect AI Provider
+                  </Dialog.Title>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to disconnect your custom AI provider? This will:
+                    </p>
+                    <ul className="text-sm text-gray-500 mt-2 list-disc list-inside space-y-1">
+                      <li>Remove your custom AI credentials</li>
+                      <li>Switch back to default system AI processing</li>
+                      <li>Clear all stored API keys</li>
+                    </ul>
+                    <p className="text-sm text-red-600 mt-2 font-medium">
+                      Meeting data processing will use default system credentials until you reconnect.
+                    </p>
+                    
+                    <div className="mt-4">
+                      <label htmlFor="confirm-ai-disconnect" className="block text-sm font-medium text-gray-700 mb-1">
+                        Type DISCONNECT to confirm
+                      </label>
+                      <input
+                        type="text"
+                        id="confirm-ai-disconnect"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500"
+                        value={aiDisconnectConfirmText}
+                        onChange={(e) => setAiDisconnectConfirmText(e.target.value)}
+                        placeholder="DISCONNECT"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
+                      onClick={handleAIDisconnectCancel}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex justify-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50"
+                      onClick={confirmDisconnectAI}
+                      disabled={isDisconnectingAI || aiDisconnectConfirmText !== 'DISCONNECT'}
+                    >
+                      {isDisconnectingAI ? 'Disconnecting...' : 'Disconnect AI'}
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
             </div>
           </div>
-        </div>
-      )}
+        </Dialog>
+      </Transition>
     </div>
   );
 };

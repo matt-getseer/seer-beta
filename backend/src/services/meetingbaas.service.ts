@@ -1,6 +1,5 @@
 import axios from 'axios';
 import { prisma } from '../utils/prisma';
-import { google } from 'googleapis';
 import { NLPService } from './nlp.service';
 import { MeetingType } from './meeting-processor.service';
 import { TaskAssignmentService } from './task-assignment.service';
@@ -11,25 +10,15 @@ import crypto from 'crypto';
 const MEETINGBAAS_API_URL = process.env.MEETINGBAAS_API_URL || 'https://api.meetingbaas.com';
 const MEETINGBAAS_API_KEY = process.env.MEETINGBAAS_API_KEY;
 
-// Google Calendar API credentials (needed to create Google Meet links)
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN;
-const GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'primary';
-
-interface MeetingBaasResponse {
+// Extended interface for multi-platform support
+interface MeetingBaasCalendarResponse {
   id: string;
   googleMeetLink: string;
-  status: string; // "scheduled", "joining", "in_progress", "completed", "failed"
-  calendarEventId?: string; // Optional calendar event ID for legacy compatibility
-}
-
-// Extended interface for multi-platform support
-interface MeetingBaasCalendarResponse extends MeetingBaasResponse {
   platform: string;
   platformMeetingUrl: string;
-  calendarEventId: string; // Required for calendar integration
+  calendarEventId: string;
   calendarProvider: string;
+  status: string;
 }
 
 interface NLPResult {
@@ -46,7 +35,7 @@ interface NLPResult {
  */
 export class MeetingBaasService {
   /**
-   * Create meeting using MeetingBaas Calendar API (new approach)
+   * Create meeting using MeetingBaas Calendar API
    * This method supports multi-platform meetings and automatic rescheduling
    */
   static async createMeetingWithCalendar(meetingData: {
@@ -63,28 +52,7 @@ export class MeetingBaasService {
 
       // Check if calendar integration is enabled
       if (!CalendarService.isCalendarIntegrationEnabled()) {
-        console.warn('Calendar integration disabled, falling back to legacy method');
-        
-        // Fallback to legacy method for Google Meet only
-        if (meetingData.platform === 'google_meet') {
-          const legacyResponse = await this.createMeeting({
-            title: meetingData.title,
-            scheduledTime: meetingData.scheduledTime,
-            duration: meetingData.duration,
-            userId: meetingData.userId,
-            teamMemberId: meetingData.teamMemberId
-          });
-          
-          return {
-            ...legacyResponse,
-            platform: 'google_meet',
-            platformMeetingUrl: legacyResponse.googleMeetLink,
-            calendarEventId: legacyResponse.calendarEventId || '',
-            calendarProvider: 'google'
-          };
-        } else {
-          throw new Error(`Platform ${meetingData.platform} requires calendar integration to be enabled`);
-        }
+        throw new Error('MeetingBaas calendar integration is not enabled. Please enable calendar integration to create meetings.');
       }
 
       // Get team member email for attendees
@@ -110,6 +78,7 @@ export class MeetingBaasService {
         scheduledTime: meetingData.scheduledTime,
         duration: meetingData.duration,
         platform: meetingData.platform,
+        attendees: attendees,
         userId: meetingData.userId
       };
 
@@ -132,7 +101,7 @@ export class MeetingBaasService {
 
     } catch (error) {
       console.error('Error creating meeting with calendar integration:', error);
-      throw new Error(`Failed to create ${meetingData.platform} meeting via calendar integration`);
+      throw new Error(`Failed to create ${meetingData.platform} meeting via calendar integration: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -164,238 +133,6 @@ export class MeetingBaasService {
     } catch (error) {
       console.error('Error updating meeting from calendar:', error);
       throw new Error('Failed to update meeting from calendar data');
-    }
-  }
-
-  /**
-   * Create a Google Meet and send a MeetingBaas bot to it (legacy method)
-   * This method is kept for backward compatibility
-   */
-  static async createMeeting(meetingData: {
-    title: string;
-    scheduledTime: Date;
-    duration: number;
-    userId?: string; // Add userId parameter to find user-specific refresh token
-    teamMemberId?: string; // Add teamMemberId parameter
-  }): Promise<MeetingBaasResponse> {
-    try {
-      // First, create a Google Meet using Google Calendar API
-      const googleMeetResult = await this.createGoogleMeet(meetingData);
-      
-      // For all scheduled meetings, use reserved: true and start_time
-      // The bot will be reserved and join 4 minutes before the start_time
-      const meetingStartTime = new Date(meetingData.scheduledTime);
-      
-      const botPayload = {
-        meeting_url: googleMeetResult.meetLink,
-        bot_name: "AI Notetaker",
-        recording_mode: "gallery_view",
-        reserved: true, // Always true for scheduled meetings
-        start_time: Math.floor(meetingStartTime.getTime() / 1000), // Unix timestamp in seconds (not milliseconds)
-        entry_message: "Hi everyone! I'm Seer, I'll be taking notes and will provide a summary after the meeting.",
-        speech_to_text: {
-          provider: "Default"
-        },
-        automatic_leave: {
-          waiting_room_timeout: 600
-        }
-      };
-      
-      // Send bot to the meeting
-      const response = await axios.post(
-        `${MEETINGBAAS_API_URL}/bots`,
-        botPayload,
-        {
-          headers: {
-            'x-meeting-baas-api-key': MEETINGBAAS_API_KEY,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      return {
-        id: response.data.bot_id.toString(),
-        googleMeetLink: googleMeetResult.meetLink,
-        status: "scheduled",
-        calendarEventId: googleMeetResult.eventId // Store the calendar event ID
-      };
-    } catch (error) {
-      console.error('Error creating meeting with MeetingBaas:', error);
-      
-      // Log detailed error information for debugging
-      if (axios.isAxiosError(error)) {
-        console.error('MeetingBaas API Error Details:');
-        console.error('Status:', error.response?.status);
-        console.error('Status Text:', error.response?.statusText);
-        console.error('Response Data:', JSON.stringify(error.response?.data, null, 2));
-        console.error('Request URL:', error.config?.url);
-        console.error('Request Method:', error.config?.method);
-        console.error('Request Headers:', JSON.stringify(error.config?.headers, null, 2));
-        console.error('Request Data:', JSON.stringify(error.config?.data, null, 2));
-      }
-      
-      throw new Error('Failed to create meeting with MeetingBaas');
-    }
-  }
-
-  /**
-   * Create a Google Meet link using Google Calendar API
-   */
-  private static async createGoogleMeet(meetingData: {
-    title: string;
-    scheduledTime: Date;
-    duration: number;
-    userId?: string;
-    teamMemberId?: string; // Add teamMemberId parameter
-  }): Promise<{ meetLink: string; eventId: string }> {
-    try {
-      // Try to get the user's refresh token if userId is provided
-      let refreshToken = GOOGLE_REFRESH_TOKEN;
-      
-      if (meetingData.userId) {
-        try {
-          const user = await prisma.user.findUnique({
-            where: { id: meetingData.userId },
-            select: { googleRefreshToken: true, googleConnected: true }
-          });
-          
-          if (user?.googleConnected && user?.googleRefreshToken) {
-            refreshToken = user.googleRefreshToken;
-          }
-        } catch (err) {
-          console.warn('Error fetching user refresh token:', err);
-          // Continue with the default refresh token
-        }
-      }
-      
-      // If Google API credentials are not set, use a dummy link for testing
-      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !refreshToken) {
-        console.warn('Google API credentials not set, using demo link');
-        return {
-          meetLink: `https://meet.google.com/demo-${Date.now()}`,
-          eventId: `demo-event-${Date.now()}`
-        };
-      }
-
-      // Set up OAuth2 client
-      const oauth2Client = new google.auth.OAuth2(
-        GOOGLE_CLIENT_ID,
-        GOOGLE_CLIENT_SECRET
-      );
-      
-      oauth2Client.setCredentials({
-        refresh_token: refreshToken
-      });
-      
-      // Create Calendar API client
-      const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-      
-      // Calculate end time
-      const endTime = new Date(meetingData.scheduledTime);
-      endTime.setMinutes(endTime.getMinutes() + meetingData.duration);
-      
-      // Get team member's email if teamMemberId is provided
-      let teamMemberEmail = null;
-      if (meetingData.teamMemberId) {
-        try {
-          console.log(`Attempting to fetch email for team member with ID: ${meetingData.teamMemberId}`);
-          const teamMember = await prisma.user.findUnique({
-            where: { id: meetingData.teamMemberId },
-            select: { email: true, name: true }
-          });
-          
-          if (teamMember) {
-            teamMemberEmail = teamMember.email;
-            console.log(`Found team member email: ${teamMemberEmail}`);
-          } else {
-            console.warn(`Team member with ID ${meetingData.teamMemberId} not found`);
-          }
-        } catch (err) {
-          console.warn('Error fetching team member email:', err);
-        }
-      } else {
-        console.log('No teamMemberId provided, skipping attendee');
-      }
-      
-      // Create calendar event with Google Meet
-      const event: any = {
-        summary: meetingData.title,
-        start: {
-          dateTime: meetingData.scheduledTime.toISOString(),
-        },
-        end: {
-          dateTime: endTime.toISOString(),
-        },
-        conferenceData: {
-          createRequest: {
-            requestId: `meeting-${Date.now()}`,
-            conferenceSolutionKey: { type: 'hangoutsMeet' }
-          }
-        }
-      };
-      
-      // Add attendees if team member email is available
-      if (teamMemberEmail) {
-        console.log(`Adding attendee: ${teamMemberEmail}`);
-        event.attendees = [{ email: teamMemberEmail }];
-      }
-      
-      console.log('Calendar event payload:', JSON.stringify(event, null, 2));
-      
-      const response = await calendar.events.insert({
-        calendarId: GOOGLE_CALENDAR_ID,
-        conferenceDataVersion: 1,
-        requestBody: event,
-        sendUpdates: 'all' // This will send email notifications to attendees
-      });
-      
-      console.log('Calendar API response:', JSON.stringify(response.data, null, 2));
-      
-      // Extract Google Meet link
-      const meetLink = response.data.conferenceData?.entryPoints?.find(
-        (ep: any) => ep.entryPointType === 'video'
-      )?.uri;
-      
-      if (!meetLink) {
-        throw new Error('Failed to create Google Meet link');
-      }
-      
-      // Get the calendar event ID
-      const eventId = response.data.id;
-      if (!eventId) {
-        throw new Error('Failed to get calendar event ID');
-      }
-      
-      return { meetLink, eventId };
-    } catch (error) {
-      console.error('Error creating Google Meet:', error);
-      throw new Error('Failed to create Google Meet link');
-    }
-  }
-
-  /**
-   * Get bot status from MeetingBaas
-   */
-  static async getMeeting(meetingBaasId: string): Promise<MeetingBaasResponse> {
-    try {
-      const response = await axios.get(
-        `${MEETINGBAAS_API_URL}/bots/${meetingBaasId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${MEETINGBAAS_API_KEY}`
-          }
-        }
-      );
-
-      return {
-        id: response.data.bot_id.toString(),
-        googleMeetLink: response.data.meeting_url || '',
-        status: response.data.status || 'unknown',
-        calendarEventId: response.data.calendarEventId || ''
-      };
-    } catch (error) {
-      console.error('Error getting meeting data from MeetingBaas:', error);
-      throw new Error('Failed to get meeting data from MeetingBaas');
     }
   }
 
@@ -604,128 +341,6 @@ export class MeetingBaasService {
     } catch (error) {
       console.error(`Error fetching calendar event ${eventId}:`, error);
       throw new Error(`Failed to fetch calendar event details for ${eventId}`);
-    }
-  }
-
-  /**
-   * Remove/Cancel a meeting by removing the bot and deleting the calendar event
-   */
-  static async removeMeeting(meetingData: {
-    meetingBaasId: string;
-    googleMeetLink: string;
-    userId?: string;
-  }): Promise<void> {
-    try {
-      // 1. Remove the bot from MeetingBaas
-      await axios.delete(
-        `${MEETINGBAAS_API_URL}/bots/${meetingData.meetingBaasId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${MEETINGBAAS_API_KEY}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      // 2. Delete the Google Calendar event
-      await this.deleteGoogleCalendarEvent(meetingData);
-
-      console.log(`Successfully removed meeting with bot ID: ${meetingData.meetingBaasId}`);
-    } catch (error) {
-      console.error('Error removing meeting:', error);
-      
-      // Log detailed error information for debugging
-      if (axios.isAxiosError(error)) {
-        console.error('MeetingBaas API Error Details:');
-        console.error('Status:', error.response?.status);
-        console.error('Status Text:', error.response?.statusText);
-        console.error('Response Data:', JSON.stringify(error.response?.data, null, 2));
-      }
-      
-      throw new Error('Failed to remove meeting');
-    }
-  }
-
-  /**
-   * Delete Google Calendar event
-   */
-  private static async deleteGoogleCalendarEvent(meetingData: {
-    googleMeetLink: string;
-    userId?: string;
-  }): Promise<void> {
-    try {
-      // Try to get the user's refresh token if userId is provided
-      let refreshToken = GOOGLE_REFRESH_TOKEN;
-      
-      if (meetingData.userId) {
-        try {
-          const user = await prisma.user.findUnique({
-            where: { id: meetingData.userId },
-            select: { googleRefreshToken: true, googleConnected: true }
-          });
-          
-          if (user?.googleConnected && user?.googleRefreshToken) {
-            refreshToken = user.googleRefreshToken;
-          }
-        } catch (err) {
-          console.warn('Error fetching user refresh token:', err);
-          // Continue with the default refresh token
-        }
-      }
-      
-      // If Google API credentials are not set, skip calendar deletion
-      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !refreshToken) {
-        console.warn('Google API credentials not set, skipping calendar event deletion');
-        return;
-      }
-
-      // Set up OAuth2 client
-      const oauth2Client = new google.auth.OAuth2(
-        GOOGLE_CLIENT_ID,
-        GOOGLE_CLIENT_SECRET
-      );
-      
-      oauth2Client.setCredentials({
-        refresh_token: refreshToken
-      });
-      
-      // Create Calendar API client
-      const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-      
-      // Extract event ID from Google Meet link if possible
-      // Google Meet links typically contain the event ID or we need to find it by searching
-      // For now, we'll search for events with this meet link
-      const events = await calendar.events.list({
-        calendarId: GOOGLE_CALENDAR_ID,
-        timeMin: new Date().toISOString(),
-        maxResults: 100,
-        singleEvents: true,
-        orderBy: 'startTime'
-      });
-
-      // Find the event with matching Google Meet link
-      const eventToDelete = events.data.items?.find(event => {
-        const meetLink = event.conferenceData?.entryPoints?.find(
-          (ep: any) => ep.entryPointType === 'video'
-        )?.uri;
-        return meetLink === meetingData.googleMeetLink;
-      });
-
-      if (eventToDelete && eventToDelete.id) {
-        // Delete the calendar event
-        await calendar.events.delete({
-          calendarId: GOOGLE_CALENDAR_ID,
-          eventId: eventToDelete.id,
-          sendUpdates: 'all' // This will send cancellation notifications to attendees
-        });
-        
-        console.log(`Successfully deleted Google Calendar event: ${eventToDelete.id}`);
-      } else {
-        console.warn('Could not find Google Calendar event to delete');
-      }
-    } catch (error) {
-      console.error('Error deleting Google Calendar event:', error);
-      // Don't throw here - we still want to remove the bot even if calendar deletion fails
     }
   }
 

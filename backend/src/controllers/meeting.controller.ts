@@ -366,34 +366,17 @@ export class MeetingController {
       try {
         console.log(`Creating meeting with title: "${title}", teamMemberId: "${teamMemberId}", date: ${meetingDate}, duration: ${duration}`);
         
-        // Check if calendar integration is enabled
-        const calendarEnabled = process.env.MEETINGBAAS_CALENDAR_ENABLED === 'true';
-        
-        let meetingBaasResponse;
-        
-        if (calendarEnabled) {
-          console.log('Using MeetingBaas calendar integration');
-          // Use new calendar integration method
-          meetingBaasResponse = await MeetingBaasService.createMeetingWithCalendar({
-            title,
-            scheduledTime: meetingDate,
-            duration: Number(duration),
-            platform: 'google_meet', // Default to Google Meet for now
-            userId,
-            teamMemberId,
-            calendarProvider: 'google' // Default to Google calendar
-          });
-        } else {
-          console.log('Using legacy meeting creation method');
-          // Use legacy method
-          meetingBaasResponse = await MeetingBaasService.createMeeting({
-            title,
-            scheduledTime: meetingDate,
-            duration: Number(duration),
-            userId,
-            teamMemberId
-          });
-        }
+        // Use MeetingBaas calendar integration
+        console.log('Using MeetingBaas calendar integration');
+        const meetingBaasResponse = await MeetingBaasService.createMeetingWithCalendar({
+          title,
+          scheduledTime: meetingDate,
+          duration: Number(duration),
+          platform: 'google_meet', // Default to Google Meet for now
+          userId,
+          teamMemberId,
+          calendarProvider: 'google' // Default to Google calendar
+        });
         
         console.log(`MeetingBaas response: ${JSON.stringify(meetingBaasResponse)}`);
         
@@ -407,11 +390,11 @@ export class MeetingController {
             status: 'scheduled',
             processingStatus: 'pending',
             platform: 'google_meet',
-            platformMeetingUrl: calendarEnabled ? (meetingBaasResponse as any).platformMeetingUrl : null,
+            platformMeetingUrl: meetingBaasResponse.platformMeetingUrl,
             googleMeetLink: meetingBaasResponse.googleMeetLink,
             meetingBaasId: meetingBaasResponse.id,
-            calendarEventId: meetingBaasResponse.calendarEventId || null,
-            calendarProvider: calendarEnabled ? 'google' : null,
+            calendarEventId: meetingBaasResponse.calendarEventId,
+            calendarProvider: 'google',
             createdBy: userId,
             meetingType: "one_on_one",
             wins: [],
@@ -512,19 +495,8 @@ export class MeetingController {
         return res.status(404).json({ error: 'Meeting not found' });
       }
       
-      // Remove bot and calendar event if they exist
-      if (existingMeeting.meetingBaasId && existingMeeting.googleMeetLink) {
-        try {
-          await MeetingBaasService.removeMeeting({
-            meetingBaasId: existingMeeting.meetingBaasId,
-            googleMeetLink: existingMeeting.googleMeetLink,
-            userId: existingMeeting.createdBy
-          });
-        } catch (removalError) {
-          console.error('Error removing meeting from MeetingBaas/Calendar:', removalError);
-          // Continue with database deletion even if external removal fails
-        }
-      }
+      // Note: Calendar event deletion is now handled automatically by MeetingBaas calendar integration
+      // when the meeting is deleted from the database via webhooks
       
       // Delete meeting from database
       await prisma.meeting.delete({

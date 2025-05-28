@@ -120,9 +120,9 @@ model Meeting {
   platform              String    @default("google_meet") // "google_meet", "zoom", "teams"
   platformMeetingId      String?   // Platform-specific meeting ID
   platformMeetingUrl     String?   // Platform-specific meeting URL
+  googleMeetLink         String?   // Legacy field still in use
   
   // MeetingBaas specific fields
-  googleMeetLink    String?   // Legacy field - will be replaced by platformMeetingUrl
   meetingBaasId     String?   @unique
   processingStatus  String    @default("pending") // "pending", "processing", "completed", "failed"
   recordingUrl      String?   // URL to the recorded meeting video

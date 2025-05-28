@@ -216,13 +216,32 @@ router.get('/google/status', authenticate, requireAuth, async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { clerkId: req.auth.userId },
       select: {
+        id: true,
         googleConnected: true,
         googleRefreshToken: true
       }
     });
     
+    // Check if user has Google OAuth connected
+    const hasGoogleOAuth = Boolean(user?.googleConnected && user?.googleRefreshToken);
+    
+    // Also check if there are active calendar integrations
+    let hasActiveCalendarIntegration = false;
+    if (hasGoogleOAuth && user?.id) {
+      const activeIntegration = await prisma.calendarIntegration.findFirst({
+        where: {
+          userId: user.id,
+          provider: 'google',
+          isActive: true
+        }
+      });
+      hasActiveCalendarIntegration = Boolean(activeIntegration);
+    }
+    
     res.json({
-      connected: Boolean(user?.googleConnected && user?.googleRefreshToken)
+      connected: hasGoogleOAuth,
+      hasCalendarIntegration: hasActiveCalendarIntegration,
+      fullyConnected: hasGoogleOAuth && hasActiveCalendarIntegration
     });
   } catch (error) {
     console.error('Error checking Google connection status:', error);
@@ -237,7 +256,55 @@ router.post('/google/disconnect', authenticate, requireAuth, async (req, res) =>
       return res.status(401).json({ error: 'User not authenticated' });
     }
     
-    // Update user to remove Google connection
+    console.log('Disconnecting Google account for user:', req.auth.userId);
+    
+    // Get user's internal ID for calendar integration cleanup
+    const user = await prisma.user.findUnique({
+      where: { clerkId: req.auth.userId },
+      select: { id: true }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // First, get all Google calendar integrations for this user (both active and inactive)
+    const calendarIntegrations = await prisma.calendarIntegration.findMany({
+      where: {
+        userId: user.id,
+        provider: 'google'
+      }
+    });
+    
+    if (calendarIntegrations.length > 0) {
+      console.log(`Found ${calendarIntegrations.length} Google calendar integrations to delete`);
+      
+      // First, delete calendar integrations from MeetingBaas (only for active ones)
+      const { CalendarService } = await import('../services/calendar.service');
+      
+      for (const integration of calendarIntegrations) {
+        if (integration.isActive) {
+          try {
+            await CalendarService.deleteCalendarIntegration(integration.calendarId);
+          } catch (deleteError) {
+            console.error(`Failed to delete calendar ${integration.calendarId} from MeetingBaas:`, deleteError);
+            // Continue with other deletions even if one fails
+          }
+        }
+      }
+      
+      // Then, delete ALL calendar integrations from our database (both active and inactive)
+      await prisma.calendarIntegration.deleteMany({
+        where: {
+          userId: user.id,
+          provider: 'google'
+        }
+      });
+      
+      console.log('✅ All calendar integration records deleted from database');
+    }
+    
+    // Then, update user to remove Google connection
     await prisma.user.update({
       where: { clerkId: req.auth.userId },
       data: {
@@ -246,7 +313,13 @@ router.post('/google/disconnect', authenticate, requireAuth, async (req, res) =>
       }
     });
     
-    res.json({ success: true, message: 'Google account disconnected' });
+    console.log('✅ Google OAuth connection removed');
+    
+    res.json({ 
+      success: true, 
+      message: 'Google account disconnected and calendar integrations deleted',
+      calendarIntegrationsRemoved: calendarIntegrations.length
+    });
   } catch (error) {
     console.error('Error disconnecting Google account:', error);
     res.status(500).json({ error: 'Failed to disconnect Google account' });
