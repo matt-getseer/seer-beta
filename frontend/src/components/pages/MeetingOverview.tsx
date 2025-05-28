@@ -70,6 +70,7 @@ const MeetingOverview = () => {
         // Get current user ID
         const currentUser = await userApi.getCurrentUser();
         setCurrentUserId(currentUser.id);
+        
         const response = await axios.get(`${API_URL}/api/meetings/${id}`, {
           headers: {
             Authorization: `Bearer ${token}`
@@ -95,20 +96,24 @@ const MeetingOverview = () => {
         
         if (response.data.tasksData && response.data.tasksData.length > 0) {
           // We have the new structured format
-          processedTasks = response.data.tasksData.map((item: any) => ({
-            id: item.id,
-            text: item.text,
-            status: item.status as 'incomplete' | 'complete' | 'suggested',
-            createdAt: item.createdAt,
-            completedAt: item.completedAt,
-            assignedTo: item.assignedTo,
-            assigneeName: item.status === 'suggested' 
+          processedTasks = response.data.tasksData.map((item: any) => {
+            const assigneeName = item.status === 'suggested' 
               ? undefined // Don't set assigneeName for suggested tasks
-              : (item.assignedTo === currentUser.id ? 'Me' : (item.assignedTo ? teamMembersMap.get(item.assignedTo) : undefined)),
-            reasoning: item.reasoning,
-            relatedAreaForSupport: item.relatedAreaForSupport,
-            suggestedAssignee: item.suggestedAssignee
-          }));
+              : (item.assignedTo === currentUser.id ? 'Me' : (item.assignedTo ? teamMembersMap.get(item.assignedTo) : undefined));
+            
+            return {
+              id: item.id,
+              text: item.text,
+              status: item.status as 'incomplete' | 'complete' | 'suggested',
+              createdAt: item.createdAt,
+              completedAt: item.completedAt,
+              assignedTo: item.assignedTo,
+              assigneeName,
+              reasoning: item.reasoning,
+              relatedAreaForSupport: item.relatedAreaForSupport,
+              suggestedAssignee: item.suggestedAssignee
+            };
+          });
         } else if (response.data.actionItems && response.data.actionItems.length > 0) {
           // Fall back to legacy string array format if needed
           processedTasks = response.data.actionItems.map((item: string, index: number) => ({
@@ -138,8 +143,6 @@ const MeetingOverview = () => {
             meetingData.areasForSupport && 
             meetingData.areasForSupport.length > 0 &&
             meetingData.processingStatus === 'completed') {
-          console.log('Auto-generating task suggestions since no tasks exist but areas for support found');
-          // Automatically generate task suggestions
           setTimeout(() => {
             generateSuggestedTasks();
           }, 1000); // Small delay to ensure UI is ready
@@ -153,9 +156,7 @@ const MeetingOverview = () => {
       }
     };
     
-    if (id) {
-      fetchMeeting();
-    }
+    fetchMeeting();
   }, [id, getToken]);
 
   // Fetch agenda when the activeTab is changed to 'agenda'
@@ -336,24 +337,34 @@ const MeetingOverview = () => {
         }
       });
       
+      // Create teamMembersMap for consistent assignment name resolution
+      const teamMembersMap = new Map();
+      teamMembers.forEach((member: TeamMember) => {
+        teamMembersMap.set(member.id, member.name);
+      });
+      
       // Process tasks including suggested ones
       let processedTasks = [];
       
       if (updatedMeetingResponse.data.tasksData && updatedMeetingResponse.data.tasksData.length > 0) {
-        processedTasks = updatedMeetingResponse.data.tasksData.map((item: any) => ({
-          id: item.id,
-          text: item.text,
-          status: item.status as 'incomplete' | 'complete' | 'suggested',
-          createdAt: item.createdAt,
-          completedAt: item.completedAt,
-          assignedTo: item.assignedTo,
-          assigneeName: item.status === 'suggested' 
+        processedTasks = updatedMeetingResponse.data.tasksData.map((item: any) => {
+          const assigneeName = item.status === 'suggested' 
             ? undefined // Don't set assigneeName for suggested tasks
-            : (item.assignedTo === currentUserId ? 'Me' : (item.assignedTo ? teamMembers.find(m => m.id === item.assignedTo)?.name : undefined)),
-          reasoning: item.reasoning,
-          relatedAreaForSupport: item.relatedAreaForSupport,
-          suggestedAssignee: item.suggestedAssignee
-        }));
+            : (item.assignedTo === currentUserId ? 'Me' : (item.assignedTo ? teamMembersMap.get(item.assignedTo) : undefined));
+          
+          return {
+            id: item.id,
+            text: item.text,
+            status: item.status as 'incomplete' | 'complete' | 'suggested',
+            createdAt: item.createdAt,
+            completedAt: item.completedAt,
+            assignedTo: item.assignedTo,
+            assigneeName,
+            reasoning: item.reasoning,
+            relatedAreaForSupport: item.relatedAreaForSupport,
+            suggestedAssignee: item.suggestedAssignee
+          };
+        });
       }
       
       // Update the meeting state with new tasks

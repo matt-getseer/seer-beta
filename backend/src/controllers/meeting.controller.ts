@@ -366,14 +366,34 @@ export class MeetingController {
       try {
         console.log(`Creating meeting with title: "${title}", teamMemberId: "${teamMemberId}", date: ${meetingDate}, duration: ${duration}`);
         
-        // Create meeting in MeetingBaas
-        const meetingBaasResponse = await MeetingBaasService.createMeeting({
-          title,
-          scheduledTime: meetingDate,
-          duration: Number(duration),
-          userId,
-          teamMemberId
-        });
+        // Check if calendar integration is enabled
+        const calendarEnabled = process.env.MEETINGBAAS_CALENDAR_ENABLED === 'true';
+        
+        let meetingBaasResponse;
+        
+        if (calendarEnabled) {
+          console.log('Using MeetingBaas calendar integration');
+          // Use new calendar integration method
+          meetingBaasResponse = await MeetingBaasService.createMeetingWithCalendar({
+            title,
+            scheduledTime: meetingDate,
+            duration: Number(duration),
+            platform: 'google_meet', // Default to Google Meet for now
+            userId,
+            teamMemberId,
+            calendarProvider: 'google' // Default to Google calendar
+          });
+        } else {
+          console.log('Using legacy meeting creation method');
+          // Use legacy method
+          meetingBaasResponse = await MeetingBaasService.createMeeting({
+            title,
+            scheduledTime: meetingDate,
+            duration: Number(duration),
+            userId,
+            teamMemberId
+          });
+        }
         
         console.log(`MeetingBaas response: ${JSON.stringify(meetingBaasResponse)}`);
         
@@ -386,8 +406,12 @@ export class MeetingController {
             duration: Number(duration),
             status: 'scheduled',
             processingStatus: 'pending',
+            platform: 'google_meet',
+            platformMeetingUrl: calendarEnabled ? (meetingBaasResponse as any).platformMeetingUrl : null,
             googleMeetLink: meetingBaasResponse.googleMeetLink,
             meetingBaasId: meetingBaasResponse.id,
+            calendarEventId: meetingBaasResponse.calendarEventId || null,
+            calendarProvider: calendarEnabled ? 'google' : null,
             createdBy: userId,
             meetingType: "one_on_one",
             wins: [],

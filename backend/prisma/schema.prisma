@@ -58,6 +58,10 @@ model User {
   // Analysis history relationship
   analysisHistory   AnalysisHistory[] @relation("UserAnalysisHistory")
   
+  // Multi-platform integration relationships
+  calendarIntegrations CalendarIntegration[] @relation("UserCalendarIntegrations")
+  platformIntegrations PlatformIntegration[] @relation("UserPlatformIntegrations")
+  
   // Performance indexes for team queries
   @@index([adminId])
   @@index([role])
@@ -112,11 +116,25 @@ model Meeting {
   status            String    @default("scheduled") // "scheduled", "completed", "cancelled"
   meetingType       String    @default("default")   // "default", "one_on_one", "team_meeting", "client_presentation", "sales_call"
   
+  // Multi-platform support
+  platform              String    @default("google_meet") // "google_meet", "zoom", "teams"
+  platformMeetingId      String?   // Platform-specific meeting ID
+  platformMeetingUrl     String?   // Platform-specific meeting URL
+  
   // MeetingBaas specific fields
-  googleMeetLink    String?
+  googleMeetLink    String?   // Legacy field - will be replaced by platformMeetingUrl
   meetingBaasId     String?   @unique
   processingStatus  String    @default("pending") // "pending", "processing", "completed", "failed"
   recordingUrl      String?   // URL to the recorded meeting video
+  
+  // MeetingBaas Calendar Integration
+  meetingBaasCalendarId  String?   // MeetingBaas calendar integration ID
+  calendarEventId        String?   // Calendar event ID from MeetingBaas
+  calendarProvider       String?   // "google", "microsoft"
+  
+  // Auto-rescheduling tracking
+  lastSyncedAt          DateTime?
+  autoReschedulingEnabled Boolean  @default(true)
   
   // NLP Results
   transcript        String?   @db.Text
@@ -146,9 +164,12 @@ model Meeting {
   @@index([createdBy])
   @@index([date])
   @@index([status])
+  @@index([platform])
+  @@index([calendarEventId])
   @@index([teamMemberId, date])
   @@index([createdBy, date])
   @@index([status, date])
+  @@index([platform, status])
 }
 
 // Model to track calendar changes to meetings
@@ -157,7 +178,7 @@ model MeetingChange {
   meetingId   String
   meeting     Meeting   @relation("MeetingChanges", fields: [meetingId], references: [id], onDelete: Cascade)
   
-  changeType  String    // "updated", "deleted", "moved", etc.
+  changeType  String    // "updated", "deleted", "moved", "synced", etc.
   eventId     String?   // The calendar event ID from MeetingBaas
   changeData  Json?     // JSON data of what was changed
   
@@ -173,6 +194,7 @@ model MeetingChange {
   
   @@index([meetingId])
   @@index([changeType])
+  @@index([eventId])
 }
 
 // New model for structured tasks
@@ -212,4 +234,57 @@ model KeyArea {
   // Admin who created this key area
   createdById String
   createdBy   User      @relation("CreatedKeyAreas", fields: [createdById], references: [id], onDelete: Cascade)
+}
+
+// New model for calendar integrations (Google, Microsoft)
+model CalendarIntegration {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation("UserCalendarIntegrations", fields: [userId], references: [id], onDelete: Cascade)
+  
+  provider          String    // "google", "microsoft"
+  calendarId        String    // MeetingBaas calendar ID
+  externalCalendarId String   // Google/Microsoft calendar ID
+  
+  // OAuth tokens (encrypted)
+  accessToken       String?
+  refreshToken      String?
+  tokenExpiry       DateTime?
+  
+  isActive          Boolean   @default(true)
+  lastSyncedAt      DateTime?
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@unique([userId, provider])
+  @@index([userId])
+  @@index([provider])
+  @@index([calendarId])
+}
+
+// New model for platform integrations (Zoom, Teams)
+model PlatformIntegration {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation("UserPlatformIntegrations", fields: [userId], references: [id], onDelete: Cascade)
+  
+  platform          String    // "zoom", "teams"
+  
+  // OAuth tokens (encrypted)
+  accessToken       String?
+  refreshToken      String?
+  tokenExpiry       DateTime?
+  
+  // Platform-specific settings
+  settings          Json?
+  
+  isActive          Boolean   @default(true)
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@unique([userId, platform])
+  @@index([userId])
+  @@index([platform])
 }

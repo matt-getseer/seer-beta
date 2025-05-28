@@ -4,6 +4,7 @@ import { google } from 'googleapis';
 import { NLPService } from './nlp.service';
 import { MeetingType } from './meeting-processor.service';
 import { TaskAssignmentService } from './task-assignment.service';
+import { CalendarService, CalendarMeetingData, CalendarMeetingResponse } from './calendar.service';
 import crypto from 'crypto';
 
 // Using singleton Prisma client from utils/prisma
@@ -20,6 +21,15 @@ interface MeetingBaasResponse {
   id: string;
   googleMeetLink: string;
   status: string; // "scheduled", "joining", "in_progress", "completed", "failed"
+  calendarEventId?: string; // Optional calendar event ID for legacy compatibility
+}
+
+// Extended interface for multi-platform support
+interface MeetingBaasCalendarResponse extends MeetingBaasResponse {
+  platform: string;
+  platformMeetingUrl: string;
+  calendarEventId: string; // Required for calendar integration
+  calendarProvider: string;
 }
 
 interface NLPResult {
@@ -36,7 +46,130 @@ interface NLPResult {
  */
 export class MeetingBaasService {
   /**
-   * Create a Google Meet and send a MeetingBaas bot to it
+   * Create meeting using MeetingBaas Calendar API (new approach)
+   * This method supports multi-platform meetings and automatic rescheduling
+   */
+  static async createMeetingWithCalendar(meetingData: {
+    title: string;
+    scheduledTime: Date;
+    duration: number;
+    platform: 'google_meet' | 'zoom' | 'teams';
+    userId: string;
+    teamMemberId?: string;
+    calendarProvider: 'google' | 'microsoft';
+  }): Promise<MeetingBaasCalendarResponse> {
+    try {
+      console.log(`Creating ${meetingData.platform} meeting via calendar integration for user ${meetingData.userId}`);
+
+      // Check if calendar integration is enabled
+      if (!CalendarService.isCalendarIntegrationEnabled()) {
+        console.warn('Calendar integration disabled, falling back to legacy method');
+        
+        // Fallback to legacy method for Google Meet only
+        if (meetingData.platform === 'google_meet') {
+          const legacyResponse = await this.createMeeting({
+            title: meetingData.title,
+            scheduledTime: meetingData.scheduledTime,
+            duration: meetingData.duration,
+            userId: meetingData.userId,
+            teamMemberId: meetingData.teamMemberId
+          });
+          
+          return {
+            ...legacyResponse,
+            platform: 'google_meet',
+            platformMeetingUrl: legacyResponse.googleMeetLink,
+            calendarEventId: legacyResponse.calendarEventId || '',
+            calendarProvider: 'google'
+          };
+        } else {
+          throw new Error(`Platform ${meetingData.platform} requires calendar integration to be enabled`);
+        }
+      }
+
+      // Get team member email for attendees
+      let attendees: string[] = [];
+      if (meetingData.teamMemberId) {
+        try {
+          const teamMember = await prisma.user.findUnique({
+            where: { id: meetingData.teamMemberId },
+            select: { email: true }
+          });
+          
+          if (teamMember?.email) {
+            attendees.push(teamMember.email);
+          }
+        } catch (err) {
+          console.warn('Error fetching team member email:', err);
+        }
+      }
+
+      // Prepare calendar meeting data
+      const calendarMeetingData: CalendarMeetingData = {
+        title: meetingData.title,
+        scheduledTime: meetingData.scheduledTime,
+        duration: meetingData.duration,
+        platform: meetingData.platform,
+        userId: meetingData.userId
+      };
+
+      // Create meeting through calendar service
+      const calendarResponse = await CalendarService.createCalendarMeeting(
+        meetingData.userId,
+        calendarMeetingData,
+        meetingData.calendarProvider
+      );
+
+      return {
+        id: calendarResponse.id,
+        googleMeetLink: calendarResponse.googleMeetLink,
+        platformMeetingUrl: calendarResponse.googleMeetLink,
+        platform: meetingData.platform,
+        calendarEventId: calendarResponse.calendarEventId || '',
+        calendarProvider: meetingData.calendarProvider,
+        status: "scheduled"
+      };
+
+    } catch (error) {
+      console.error('Error creating meeting with calendar integration:', error);
+      throw new Error(`Failed to create ${meetingData.platform} meeting via calendar integration`);
+    }
+  }
+
+  /**
+   * Update meeting when calendar event changes
+   */
+  static async updateMeetingFromCalendar(meetingId: string, calendarData: any): Promise<void> {
+    try {
+      console.log(`Updating meeting ${meetingId} from calendar data`);
+
+      const { title, start_time, duration, meeting_url } = calendarData;
+
+      // Update meeting in database
+      const updateData: any = {
+        lastSyncedAt: new Date()
+      };
+
+      if (title) updateData.title = title;
+      if (start_time) updateData.date = new Date(start_time);
+      if (duration) updateData.duration = duration;
+      if (meeting_url) updateData.platformMeetingUrl = meeting_url;
+
+      await prisma.meeting.update({
+        where: { id: meetingId },
+        data: updateData
+      });
+
+      console.log(`Successfully updated meeting ${meetingId} from calendar`);
+    } catch (error) {
+      console.error('Error updating meeting from calendar:', error);
+      throw new Error('Failed to update meeting from calendar data');
+    }
+  }
+
+  /**
+   * Create a Google Meet and send a MeetingBaas bot to it (legacy method)
+   * This method is kept for backward compatibility
    */
   static async createMeeting(meetingData: {
     title: string;
@@ -47,14 +180,14 @@ export class MeetingBaasService {
   }): Promise<MeetingBaasResponse> {
     try {
       // First, create a Google Meet using Google Calendar API
-      const googleMeetLink = await this.createGoogleMeet(meetingData);
+      const googleMeetResult = await this.createGoogleMeet(meetingData);
       
       // For all scheduled meetings, use reserved: true and start_time
       // The bot will be reserved and join 4 minutes before the start_time
       const meetingStartTime = new Date(meetingData.scheduledTime);
       
       const botPayload = {
-        meeting_url: googleMeetLink,
+        meeting_url: googleMeetResult.meetLink,
         bot_name: "AI Notetaker",
         recording_mode: "gallery_view",
         reserved: true, // Always true for scheduled meetings
@@ -82,8 +215,9 @@ export class MeetingBaasService {
 
       return {
         id: response.data.bot_id.toString(),
-        googleMeetLink,
-        status: "scheduled"
+        googleMeetLink: googleMeetResult.meetLink,
+        status: "scheduled",
+        calendarEventId: googleMeetResult.eventId // Store the calendar event ID
       };
     } catch (error) {
       console.error('Error creating meeting with MeetingBaas:', error);
@@ -113,7 +247,7 @@ export class MeetingBaasService {
     duration: number;
     userId?: string;
     teamMemberId?: string; // Add teamMemberId parameter
-  }): Promise<string> {
+  }): Promise<{ meetLink: string; eventId: string }> {
     try {
       // Try to get the user's refresh token if userId is provided
       let refreshToken = GOOGLE_REFRESH_TOKEN;
@@ -137,7 +271,10 @@ export class MeetingBaasService {
       // If Google API credentials are not set, use a dummy link for testing
       if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !refreshToken) {
         console.warn('Google API credentials not set, using demo link');
-        return `https://meet.google.com/demo-${Date.now()}`;
+        return {
+          meetLink: `https://meet.google.com/demo-${Date.now()}`,
+          eventId: `demo-event-${Date.now()}`
+        };
       }
 
       // Set up OAuth2 client
@@ -223,7 +360,13 @@ export class MeetingBaasService {
         throw new Error('Failed to create Google Meet link');
       }
       
-      return meetLink;
+      // Get the calendar event ID
+      const eventId = response.data.id;
+      if (!eventId) {
+        throw new Error('Failed to get calendar event ID');
+      }
+      
+      return { meetLink, eventId };
     } catch (error) {
       console.error('Error creating Google Meet:', error);
       throw new Error('Failed to create Google Meet link');
@@ -239,7 +382,7 @@ export class MeetingBaasService {
         `${MEETINGBAAS_API_URL}/bots/${meetingBaasId}`,
         {
           headers: {
-            'x-meeting-baas-api-key': MEETINGBAAS_API_KEY
+            'Authorization': `Bearer ${MEETINGBAAS_API_KEY}`
           }
         }
       );
@@ -247,7 +390,8 @@ export class MeetingBaasService {
       return {
         id: response.data.bot_id.toString(),
         googleMeetLink: response.data.meeting_url || '',
-        status: response.data.status || 'unknown'
+        status: response.data.status || 'unknown',
+        calendarEventId: response.data.calendarEventId || ''
       };
     } catch (error) {
       console.error('Error getting meeting data from MeetingBaas:', error);
@@ -308,7 +452,7 @@ export class MeetingBaasService {
           `${MEETINGBAAS_API_URL}/bots/${meetingBaasId}/recording`,
           {
             headers: {
-              'x-meeting-baas-api-key': MEETINGBAAS_API_KEY
+              'Authorization': `Bearer ${MEETINGBAAS_API_KEY}`
             }
           }
         );
@@ -395,8 +539,13 @@ export class MeetingBaasService {
       });
       
       if (!meeting) {
-        throw new Error(`Meeting with MeetingBaas ID ${meetingBaasId} not found`);
+        console.warn(`Meeting with MeetingBaas ID ${meetingBaasId} not found in database. This might be a test webhook or external meeting.`);
+        // For test webhooks or external meetings, we'll just log and return success
+        // rather than throwing an error
+        return;
       }
+      
+      console.log(`Processing meeting completion for meeting ${meeting.id} (MeetingBaas ID: ${meetingBaasId})`);
       
       // Process the recording with our NLP service, passing the webhook data
       const nlpResult = await this.processRecording(meetingBaasId, webhookData);
@@ -426,6 +575,8 @@ export class MeetingBaasService {
       if ((nlpResult.tasks && nlpResult.tasks.length > 0) || (nlpResult.actionItems && nlpResult.actionItems.length > 0)) {
         await this.createStructuredTasks(meeting, nlpResult);
       }
+      
+      console.log(`Successfully processed meeting completion for ${meetingBaasId}`);
     } catch (error) {
       console.error('Error handling meeting completion:', error);
       throw new Error('Failed to handle meeting completion');
@@ -444,7 +595,7 @@ export class MeetingBaasService {
         `${MEETINGBAAS_API_URL}/calendar_events/${eventId}`,
         {
           headers: {
-            'x-meeting-baas-api-key': MEETINGBAAS_API_KEY
+            'Authorization': `Bearer ${MEETINGBAAS_API_KEY}`
           }
         }
       );
@@ -470,7 +621,7 @@ export class MeetingBaasService {
         `${MEETINGBAAS_API_URL}/bots/${meetingData.meetingBaasId}`,
         {
           headers: {
-            'x-meeting-baas-api-key': MEETINGBAAS_API_KEY,
+            'Authorization': `Bearer ${MEETINGBAAS_API_KEY}`,
             'Content-Type': 'application/json'
           }
         }

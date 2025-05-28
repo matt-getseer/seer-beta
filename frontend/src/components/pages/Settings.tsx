@@ -13,6 +13,14 @@ const Settings = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0); // Add refresh trigger counter
   const { getToken } = useAuth();
   
+  // Calendar integration status
+  const [calendarIntegrationStatus, setCalendarIntegrationStatus] = useState<{
+    show: boolean;
+    type: 'success' | 'error' | 'info';
+    message: string;
+    calendarId?: string;
+  }>({ show: false, type: 'info', message: '' });
+  
   // Disconnect confirmation dialog
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
   const [showAIDisconnectDialog, setShowAIDisconnectDialog] = useState(false);
@@ -49,6 +57,50 @@ const Settings = () => {
   const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
+    // Check URL parameters for OAuth callback status
+    const urlParams = new URLSearchParams(window.location.search);
+    const googleSuccess = urlParams.get('googleSuccess');
+    const calendarSetup = urlParams.get('calendarSetup');
+    const calendarExists = urlParams.get('calendarExists');
+    const calendarError = urlParams.get('calendarError');
+    const calendarId = urlParams.get('calendarId');
+    
+    if (googleSuccess === 'true') {
+      if (calendarSetup === 'true') {
+        setCalendarIntegrationStatus({
+          show: true,
+          type: 'success',
+          message: `✅ Google account connected and MeetingBaas calendar integration set up successfully!${calendarId ? ` Calendar ID: ${calendarId}` : ''}`,
+          calendarId: calendarId || undefined
+        });
+      } else if (calendarExists === 'true') {
+        setCalendarIntegrationStatus({
+          show: true,
+          type: 'info',
+          message: '✅ Google account connected! Calendar integration already exists.'
+        });
+      } else if (calendarError) {
+        setCalendarIntegrationStatus({
+          show: true,
+          type: 'error',
+          message: `⚠️ Google account connected, but calendar integration failed: ${decodeURIComponent(calendarError)}`
+        });
+      } else {
+        setCalendarIntegrationStatus({
+          show: true,
+          type: 'success',
+          message: '✅ Google account connected successfully!'
+        });
+      }
+      
+      // Clear URL parameters after showing message
+      setTimeout(() => {
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+        setCalendarIntegrationStatus(prev => ({ ...prev, show: false }));
+      }, 8000); // Show for 8 seconds
+    }
+
     // Check if Google account is connected directly from the database
     const checkGoogleConnection = async () => {
       try {
@@ -161,6 +213,45 @@ const Settings = () => {
     }
   };
   
+  const setupCalendarIntegration = async () => {
+    try {
+      setLoading(true);
+      const token = await getToken();
+      
+      const response = await axios.post(`${API_URL}/api/auth/google/setup-calendar`, {}, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      if (response.data.success) {
+        setCalendarIntegrationStatus({
+          show: true,
+          type: 'success',
+          message: response.data.message,
+          calendarId: response.data.calendarId
+        });
+        
+        // Clear message after 5 seconds
+        setTimeout(() => {
+          setCalendarIntegrationStatus(prev => ({ ...prev, show: false }));
+        }, 5000);
+      }
+    } catch (error: any) {
+      setCalendarIntegrationStatus({
+        show: true,
+        type: 'error',
+        message: `Failed to set up calendar integration: ${error.response?.data?.details || error.message}`
+      });
+      
+      // Clear error message after 8 seconds
+      setTimeout(() => {
+        setCalendarIntegrationStatus(prev => ({ ...prev, show: false }));
+      }, 8000);
+    } finally {
+      setLoading(false);
+    }
+  };
   
   const confirmDisconnectAI = async () => {
     try {
@@ -237,6 +328,28 @@ const Settings = () => {
         <div className="p-6">
           <h2 className="text-lg font-medium text-[#171717] mb-4">Integrations</h2>
           
+          {/* Calendar Integration Status Message */}
+          {calendarIntegrationStatus.show && (
+            <div className={`mb-4 p-4 rounded-md ${
+              calendarIntegrationStatus.type === 'success' ? 'bg-green-50 border border-green-200' :
+              calendarIntegrationStatus.type === 'error' ? 'bg-red-50 border border-red-200' :
+              'bg-blue-50 border border-blue-200'
+            }`}>
+              <div className={`text-sm ${
+                calendarIntegrationStatus.type === 'success' ? 'text-green-800' :
+                calendarIntegrationStatus.type === 'error' ? 'text-red-800' :
+                'text-blue-800'
+              }`}>
+                {calendarIntegrationStatus.message}
+              </div>
+              {calendarIntegrationStatus.calendarId && (
+                <div className="mt-2 text-xs text-gray-600 font-mono bg-gray-100 p-2 rounded">
+                  Calendar ID: {calendarIntegrationStatus.calendarId}
+                </div>
+              )}
+            </div>
+          )}
+          
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -263,6 +376,15 @@ const Settings = () => {
                   >
                     {googleConnected ? 'Disconnect' : 'Connect'}
                   </button>
+                  {googleConnected && (
+                    <button
+                      onClick={setupCalendarIntegration}
+                      className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-700"
+                      title="Set up MeetingBaas calendar integration"
+                    >
+                      Setup Calendar
+                    </button>
+                  )}
                   <button
                     onClick={refreshConnectionStatus}
                     className="px-3 py-2 rounded-md text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200"

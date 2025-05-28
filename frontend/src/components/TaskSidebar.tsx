@@ -536,6 +536,16 @@ const TaskSidebar = ({
                           </Listbox>
                         </div>
                       </div>
+
+                      {/* Reasoning for regular tasks */}
+                      {task.reasoning && (
+                        <div className="mb-6">
+                          <h3 className="text-sm font-medium text-gray-700 mb-2">Why This Helps</h3>
+                          <p className="text-base text-gray-600 bg-blue-50 rounded-md p-3 border-l-4 border-blue-200">
+                            {task.reasoning}
+                          </p>
+                        </div>
+                      )}
                     </>
                   )
                 ) : null}

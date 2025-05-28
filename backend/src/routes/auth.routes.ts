@@ -146,7 +146,7 @@ router.get('/google/callback', async (req, res) => {
     if (tokens.refresh_token) {
       // Update user with Google refresh token
       console.log('Updating user with refresh token');
-      await prisma.user.update({
+      const updatedUser = await prisma.user.update({
         where: { clerkId: userId },
         data: {
           googleRefreshToken: tokens.refresh_token,
@@ -158,8 +158,44 @@ router.get('/google/callback', async (req, res) => {
       process.env.GOOGLE_REFRESH_TOKEN = tokens.refresh_token;
       console.log('Environment variable updated with refresh token');
       
-      // Redirect to settings page with success
-      return res.redirect(`${process.env.FRONTEND_URL}/settings?googleSuccess=true`);
+      // Automatically set up MeetingBaas calendar integration
+      try {
+        console.log('Automatically setting up MeetingBaas calendar integration...');
+        const { CalendarService } = await import('../services/calendar.service');
+        
+        // Check if calendar integration already exists
+        const existingIntegration = await prisma.calendarIntegration.findFirst({
+          where: {
+            userId: updatedUser.id,
+            provider: 'google',
+            isActive: true
+          }
+        });
+
+        if (!existingIntegration) {
+          const calendarIntegration = await CalendarService.setupCalendarIntegration(updatedUser.id, {
+            provider: 'google',
+            refreshToken: tokens.refresh_token
+          });
+          
+          console.log('✅ MeetingBaas calendar integration created automatically:', calendarIntegration.calendarId);
+          
+          // Redirect with success and calendar setup info
+          return res.redirect(`${process.env.FRONTEND_URL}/settings?googleSuccess=true&calendarSetup=true&calendarId=${calendarIntegration.calendarId}`);
+        } else {
+          console.log('✅ Calendar integration already exists:', existingIntegration.calendarId);
+          
+          // Redirect with success
+          return res.redirect(`${process.env.FRONTEND_URL}/settings?googleSuccess=true&calendarExists=true`);
+        }
+        
+      } catch (calendarError: any) {
+        console.error('❌ Error setting up calendar integration automatically:', calendarError);
+        
+        // Still redirect with success for OAuth, but indicate calendar setup failed
+        return res.redirect(`${process.env.FRONTEND_URL}/settings?googleSuccess=true&calendarError=${encodeURIComponent(calendarError.message)}`);
+      }
+      
     } else {
       console.error('No refresh token received');
       return res.redirect(`${process.env.FRONTEND_URL}/settings?googleError=missing_token`);
@@ -214,6 +250,76 @@ router.post('/google/disconnect', authenticate, requireAuth, async (req, res) =>
   } catch (error) {
     console.error('Error disconnecting Google account:', error);
     res.status(500).json({ error: 'Failed to disconnect Google account' });
+  }
+});
+
+// Setup MeetingBaas calendar integration after OAuth completion
+router.post('/google/setup-calendar', authenticate, requireAuth, async (req, res) => {
+  try {
+    if (!req.auth?.userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    console.log('Setting up MeetingBaas calendar integration for user:', req.auth.userId);
+
+    // Get user's Google refresh token
+    const user = await prisma.user.findUnique({
+      where: { clerkId: req.auth.userId },
+      select: {
+        id: true,
+        googleRefreshToken: true,
+        googleConnected: true
+      }
+    });
+
+    if (!user?.googleConnected || !user?.googleRefreshToken) {
+      return res.status(400).json({ 
+        error: 'Google account not connected. Please connect your Google account first.' 
+      });
+    }
+
+    // Import CalendarService to set up integration
+    const { CalendarService } = await import('../services/calendar.service');
+
+    // Check if calendar integration already exists
+    const existingIntegration = await prisma.calendarIntegration.findFirst({
+      where: {
+        userId: user.id,
+        provider: 'google',
+        isActive: true
+      }
+    });
+
+    if (existingIntegration) {
+      return res.json({
+        success: true,
+        message: 'Calendar integration already exists',
+        calendarId: existingIntegration.calendarId
+      });
+    }
+
+    // Set up calendar integration with MeetingBaas
+    const calendarIntegration = await CalendarService.setupCalendarIntegration(user.id, {
+      provider: 'google',
+      refreshToken: user.googleRefreshToken
+    });
+
+    console.log('Calendar integration created successfully:', calendarIntegration);
+
+    res.json({
+      success: true,
+      message: 'MeetingBaas calendar integration set up successfully',
+      calendarId: calendarIntegration.calendarId,
+      provider: calendarIntegration.provider,
+      isActive: calendarIntegration.isActive
+    });
+
+  } catch (error: any) {
+    console.error('Error setting up calendar integration:', error);
+    res.status(500).json({ 
+      error: 'Failed to set up calendar integration',
+      details: error.message 
+    });
   }
 });
 

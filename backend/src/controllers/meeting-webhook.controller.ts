@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../utils/prisma';
 import { MeetingBaasService } from '../services/meetingbaas.service';
+import { CalendarService } from '../services/calendar.service';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
@@ -87,9 +88,12 @@ export class MeetingWebhookController {
           }
         }
       }
-      // Handle calendar events
+      // Handle calendar events using the new CalendarService
       else if (isCalendarEvent(eventType)) {
-        await MeetingWebhookController.handleCalendarEvent(eventType, data);
+        await CalendarService.handleCalendarWebhook({
+          event_type: eventType,
+          data: data
+        });
       }
       
       // Always return success to acknowledge receipt of the webhook
@@ -104,66 +108,19 @@ export class MeetingWebhookController {
   }
 
   /**
-   * Handle calendar event webhooks (event.added, event.updated, event.deleted, calendar.sync_events)
+   * Handle calendar event webhooks (legacy method - now delegated to CalendarService)
+   * This method is kept for backward compatibility
    */
   static async handleCalendarEvent(eventType: string, data: any) {
     try {
-      console.log(`Processing calendar event: ${eventType}`, JSON.stringify(data, null, 2));
+      console.log(`Processing calendar event via legacy handler: ${eventType}`);
       
-      // For calendar.sync_events, we need to process each affected event
-      if (eventType === 'calendar.sync_events' && Array.isArray(data.affected_event_uuids)) {
-        console.log(`Processing ${data.affected_event_uuids.length} affected events`);
-        
-        // Process each affected event UUID
-        for (const eventUuid of data.affected_event_uuids) {
-          console.log(`Need to fetch details for event ${eventUuid}`);
-          
-          try {
-            await recordCalendarSync(eventUuid, data);
-          } catch (err) {
-            console.error(`Error processing event ${eventUuid}:`, err);
-            // Continue processing other events
-          }
-        }
-      }
-      // Handle array of events if provided
-      else if (data.events && Array.isArray(data.events)) {
-        console.log(`Processing ${data.events.length} events in payload`);
-        
-        for (const event of data.events) {
-          const subEventType = event.type || eventType;
-          try {
-            if (subEventType === 'event.added' || subEventType === 'added') {
-              await handleEventAdded(event);
-            }
-            else if (subEventType === 'event.updated' || subEventType === 'updated') {
-              await handleEventUpdated(event);
-            }
-            else if (subEventType === 'event.deleted' || subEventType === 'deleted') {
-              await handleEventDeleted(event);
-            }
-            else {
-              console.log(`Unknown event sub-type: ${subEventType}`);
-            }
-          } catch (err) {
-            console.error(`Error processing event ${JSON.stringify(event)}:`, err);
-            // Continue processing other events
-          }
-        }
-      }
-      // Handle direct event notifications
-      else if (eventType === 'event.added') {
-        await handleEventAdded(data);
-      }
-      else if (eventType === 'event.updated') {
-        await handleEventUpdated(data);
-      }
-      else if (eventType === 'event.deleted') {
-        await handleEventDeleted(data);
-      }
-      else {
-        console.log(`Unhandled calendar event type: ${eventType}`);
-      }
+      // Delegate to the new CalendarService
+      await CalendarService.handleCalendarWebhook({
+        event_type: eventType,
+        data: data
+      });
+      
     } catch (error) {
       console.error('Error handling calendar event:', error);
       // Don't throw here, so that we can still return a 200 to MeetingBaas
@@ -175,6 +132,9 @@ export class MeetingWebhookController {
 function isCalendarEvent(eventType: string): boolean {
   const calendarEventTypes = [
     'calendar.sync_events',
+    'calendar.event_updated',
+    'calendar.event_deleted', 
+    'calendar.event_moved',
     'event.added',
     'event.updated',
     'event.deleted',
@@ -182,11 +142,15 @@ function isCalendarEvent(eventType: string): boolean {
     'added',
     'updated',
     'deleted',
+    'moved',
     'synced'
   ];
   
   return calendarEventTypes.includes(eventType);
 }
+
+// Legacy helper functions kept for backward compatibility
+// These are now handled by CalendarService but kept here to avoid breaking changes
 
 // Helper function to record a calendar sync event
 async function recordCalendarSync(eventUuid: string, data: any) {
@@ -200,251 +164,199 @@ async function recordCalendarSync(eventUuid: string, data: any) {
       console.log(`Fetched details for event ${eventUuid}:`, JSON.stringify(eventDetails, null, 2));
     } catch (err) {
       console.error(`Error fetching event details for ${eventUuid}:`, err);
-      // Continue with the process even if we can't get event details
-    }
-    
-    // If we have event details, we can process the event update
-    if (eventDetails) {
-      // Determine if this is an update or a deletion based on event status
-      if (eventDetails.status === 'deleted' || eventDetails.status === 'cancelled') {
-        await handleEventDeleted({ 
-          event_id: eventUuid, 
-          ...eventDetails 
-        });
-        return;
-      } else {
-        await handleEventUpdated({ 
-          event_id: eventUuid, 
-          ...eventDetails 
-        });
-        return;
-      }
-    }
-    
-    // If we couldn't get event details, fall back to finding the meeting directly
-    const meeting = await findMeetingByCalendarEventId(eventUuid);
-    
-    if (!meeting) {
-      console.log(`No matching meeting found for calendar event ${eventUuid}`);
-      // Create a record in a separate table for unmatched events so we can track them
-      try {
-        console.log(`Recording unmatched event ${eventUuid} for future processing`);
-        // Here you would create a record in a table for unmatched events
-        // This is just a placeholder for now
-      } catch (unmatchedErr) {
-        console.error(`Error recording unmatched event ${eventUuid}:`, unmatchedErr);
-      }
       return;
     }
     
-    console.log(`Found meeting ${meeting.id} for calendar event ${eventUuid}`);
+    // Find the meeting in our database by calendar event ID
+    const meeting = await findMeetingByCalendarEventId(eventUuid);
     
-    // Record that there was a sync event
-    const meetingChange = await prisma.meetingChange.create({
-      data: {
-        meetingId: meeting.id,
-        changeType: 'synced',
-        eventId: eventUuid,
-        changeData: data
-      }
-    });
-    
-    console.log(`Recorded sync event for meeting ${meeting.id}`, meetingChange);
+    if (meeting) {
+      console.log(`Found meeting ${meeting.id} for calendar event ${eventUuid}`);
+      
+      // Update the meeting with the latest event details
+      await prisma.meeting.update({
+        where: { id: meeting.id },
+        data: {
+          lastSyncedAt: new Date()
+        }
+      });
+      
+      // Record the sync in meeting changes
+      await prisma.meetingChange.create({
+        data: {
+          meetingId: meeting.id,
+          changeType: 'synced',
+          eventId: eventUuid,
+          changeData: eventDetails
+        }
+      });
+      
+      console.log(`Recorded sync for meeting ${meeting.id}`);
+    } else {
+      console.log(`No meeting found for calendar event ${eventUuid}`);
+    }
   } catch (error) {
-    console.error(`Error recording calendar sync for event ${eventUuid}:`, error);
-    throw error; // Re-throw so caller can decide whether to continue
+    console.error(`Error in recordCalendarSync for ${eventUuid}:`, error);
   }
 }
 
-// Helper function to handle event.added webhook
+// Handle event added
 async function handleEventAdded(data: any) {
   try {
-    console.log('Processing event.added webhook', JSON.stringify(data, null, 2));
+    console.log('Processing event.added:', JSON.stringify(data, null, 2));
     
-    // For a new event, we might create a new meeting in our database
-    // Or we might update an existing meeting if it was created in our system first
+    const eventId = data.uuid || data.id || data.event_id;
+    const title = data.title || data.summary;
+    const startTime = data.start_time || data.start?.dateTime;
+    const duration = data.duration;
     
-    // First, check if this meeting already exists in our system
-    const eventId = data.event_id || data.id;
-    console.log(`Looking for meeting with eventId: ${eventId}`);
-    const meeting = await findMeetingByCalendarEventId(eventId);
-    
-    // If the meeting exists, this might be a duplicate or an update to an existing meeting
-    if (meeting) {
-      console.log(`Meeting already exists for event ${eventId}, updating instead`);
-      return await handleEventUpdated(data);
+    if (!eventId) {
+      console.warn('No event ID found in event.added data');
+      return;
     }
     
-    // If the meeting doesn't exist, create a new one
-    // This would typically include processing the calendar event data
-    // to extract meeting details like title, date, duration, etc.
+    console.log(`Event added: ${eventId} - ${title} at ${startTime}`);
     
-    // For now, log that we would create a meeting
-    console.log(`Would create a new meeting for event ${eventId}`);
+    // For now, just log the event. In the future, we might want to:
+    // 1. Check if this is a meeting we should track
+    // 2. Automatically create a meeting record if it matches certain criteria
+    // 3. Send notifications to relevant users
     
-    // In a real implementation, we would extract the meeting details from the data
-    // and create a new meeting in our database
   } catch (error) {
     console.error('Error handling event.added:', error);
   }
 }
 
-// Helper function to handle event.updated webhook
+// Handle event updated
 async function handleEventUpdated(data: any) {
   try {
-    console.log('Processing event.updated webhook', JSON.stringify(data, null, 2));
+    console.log('Processing event.updated:', JSON.stringify(data, null, 2));
     
-    // Get the event ID from the webhook data - handle different possible formats
-    const eventId = data.event_id || data.id || data.uuid || data.event_uuid;
-    console.log(`Looking for meeting with eventId: ${eventId}`);
+    const eventId = data.uuid || data.id || data.event_id;
+    const title = data.title || data.summary;
+    const startTime = data.start_time || data.start?.dateTime;
+    const duration = data.duration;
     
     if (!eventId) {
-      console.error('Missing event ID in webhook data:', data);
+      console.warn('No event ID found in event.updated data');
       return;
     }
     
-    // Find the corresponding meeting in our database
+    console.log(`Event updated: ${eventId} - ${title} at ${startTime}`);
+    
+    // Find the meeting in our database
     const meeting = await findMeetingByCalendarEventId(eventId);
     
-    if (!meeting) {
-      console.log(`No matching meeting found for updated event ${eventId}`);
-      return;
-    }
-    
-    // Extract updated meeting details from the event data
-    // This would typically include title, date, duration, etc.
-    // For now, we'll log the update and record the change
-    
-    console.log(`Found meeting ${meeting.id} for updated event ${eventId}`);
-    console.log(`Current meeting data: ${JSON.stringify(meeting, null, 2)}`);
-    
-    // Parse new values from data, handling different possible formats
-    const newTitle = data.title || data.summary || data.subject || meeting.title;
-    
-    // Handle different date formats in the webhook
-    let newDate = meeting.date;
-    if (data.startTime || data.start_time || data.start) {
-      const startTime = data.startTime || data.start_time || data.start;
-      if (typeof startTime === 'string') {
-        newDate = new Date(startTime);
-      } else if (startTime && startTime.dateTime) {
-        newDate = new Date(startTime.dateTime);
+    if (meeting) {
+      console.log(`Found meeting ${meeting.id} for updated event ${eventId}`);
+      
+      // Prepare update data
+      const updateData: any = {
+        lastSyncedAt: new Date()
+      };
+      
+      if (title && title !== meeting.title) {
+        updateData.title = title;
       }
-    }
-    
-    // Handle different duration formats
-    let newDuration = meeting.duration;
-    if (data.duration) {
-      newDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration, 10);
-    } else if (data.endTime && data.startTime) {
-      // Calculate duration from start and end times
-      const start = new Date(data.startTime);
-      const end = new Date(data.endTime);
-      newDuration = Math.floor((end.getTime() - start.getTime()) / (60 * 1000));
-    }
-    
-    console.log(`New values - Title: ${newTitle}, Date: ${newDate}, Duration: ${newDuration}`);
-    
-    // Check if there are actual changes
-    const titleChanged = newTitle !== meeting.title;
-    const dateChanged = new Date(newDate).getTime() !== new Date(meeting.date).getTime();
-    const durationChanged = newDuration !== meeting.duration;
-    
-    if (!titleChanged && !dateChanged && !durationChanged) {
-      console.log(`No changes detected for meeting ${meeting.id}`);
-      return;
-    }
-    
-    console.log(`Changes detected for meeting ${meeting.id}:`);
-    if (titleChanged) console.log(`Title changed from "${meeting.title}" to "${newTitle}"`);
-    if (dateChanged) console.log(`Date changed from ${meeting.date} to ${newDate}`);
-    if (durationChanged) console.log(`Duration changed from ${meeting.duration} to ${newDuration}`);
-    
-    // Record the change
-    const meetingChange = await prisma.meetingChange.create({
-      data: {
-        meetingId: meeting.id,
-        changeType: 'updated',
-        eventId: eventId,
-        changeData: data,
-        previousTitle: titleChanged ? meeting.title : null,
-        previousDate: dateChanged ? meeting.date : null,
-        previousDuration: durationChanged ? meeting.duration : null,
-        newTitle: titleChanged ? newTitle : null,
-        newDate: dateChanged ? newDate : null,
-        newDuration: durationChanged ? Number(newDuration) : null
+      
+      if (startTime) {
+        const newDate = new Date(startTime);
+        if (newDate.getTime() !== meeting.date.getTime()) {
+          updateData.date = newDate;
+        }
       }
-    });
-    
-    console.log(`Created meeting change record:`, meetingChange);
-    
-    // Update the meeting with the new details
-    const updatedMeeting = await prisma.meeting.update({
-      where: { id: meeting.id },
-      data: {
-        title: newTitle,
-        date: newDate,
-        duration: Number(newDuration),
-        updatedAt: new Date()
+      
+      if (duration && duration !== meeting.duration) {
+        updateData.duration = duration;
       }
-    });
+      
+      // Update the meeting if there are changes
+      if (Object.keys(updateData).length > 1) { // More than just lastSyncedAt
+        await prisma.meeting.update({
+          where: { id: meeting.id },
+          data: updateData
+        });
+        
+        // Record the change
+        await prisma.meetingChange.create({
+          data: {
+            meetingId: meeting.id,
+            changeType: 'updated',
+            eventId: eventId,
+            changeData: data,
+            previousTitle: meeting.title,
+            previousDate: meeting.date,
+            previousDuration: meeting.duration,
+            newTitle: title,
+            newDate: startTime ? new Date(startTime) : null,
+            newDuration: duration
+          }
+        });
+        
+        console.log(`Updated meeting ${meeting.id} from calendar event update`);
+      } else {
+        // Just update the sync time
+        await prisma.meeting.update({
+          where: { id: meeting.id },
+          data: { lastSyncedAt: new Date() }
+        });
+      }
+    } else {
+      console.log(`No meeting found for updated calendar event ${eventId}`);
+    }
     
-    console.log(`Updated meeting ${meeting.id} with new details:`, updatedMeeting);
   } catch (error) {
     console.error('Error handling event.updated:', error);
   }
 }
 
-// Helper function to handle event.deleted webhook
+// Handle event deleted
 async function handleEventDeleted(data: any) {
   try {
-    console.log('Processing event.deleted webhook', JSON.stringify(data, null, 2));
+    console.log('Processing event.deleted:', JSON.stringify(data, null, 2));
     
-    // Get the event ID from the webhook data with support for different formats
-    const eventId = data.event_id || data.id || data.uuid || data.event_uuid;
+    const eventId = data.uuid || data.id || data.event_id;
     
     if (!eventId) {
-      console.error('Missing event ID in deleted webhook data:', data);
+      console.warn('No event ID found in event.deleted data');
       return;
     }
     
-    console.log(`Looking for meeting with eventId: ${eventId}`);
+    console.log(`Event deleted: ${eventId}`);
     
-    // Find the corresponding meeting in our database
+    // Find the meeting in our database
     const meeting = await findMeetingByCalendarEventId(eventId);
     
-    if (!meeting) {
-      console.log(`No matching meeting found for deleted event ${eventId}`);
-      return;
+    if (meeting) {
+      console.log(`Found meeting ${meeting.id} for deleted event ${eventId}`);
+      
+      // Update the meeting status to cancelled
+      await prisma.meeting.update({
+        where: { id: meeting.id },
+        data: {
+          status: 'cancelled',
+          lastSyncedAt: new Date()
+        }
+      });
+      
+      // Record the deletion
+      await prisma.meetingChange.create({
+        data: {
+          meetingId: meeting.id,
+          changeType: 'deleted',
+          eventId: eventId,
+          changeData: data,
+          previousTitle: meeting.title,
+          previousDate: meeting.date,
+          previousDuration: meeting.duration
+        }
+      });
+      
+      console.log(`Cancelled meeting ${meeting.id} due to calendar event deletion`);
+    } else {
+      console.log(`No meeting found for deleted calendar event ${eventId}`);
     }
     
-    console.log(`Found meeting ${meeting.id} for deleted event ${eventId}`);
-    
-    // Record the deletion
-    const meetingChange = await prisma.meetingChange.create({
-      data: {
-        meetingId: meeting.id,
-        changeType: 'deleted',
-        eventId: eventId,
-        changeData: data,
-        previousTitle: meeting.title,
-        previousDate: meeting.date,
-        previousDuration: meeting.duration
-      }
-    });
-    
-    console.log(`Created meeting deletion record:`, meetingChange);
-    
-    // Update the meeting status to cancelled
-    const updatedMeeting = await prisma.meeting.update({
-      where: { id: meeting.id },
-      data: {
-        status: 'cancelled',
-        updatedAt: new Date()
-      }
-    });
-    
-    console.log(`Marked meeting ${meeting.id} as cancelled due to deletion:`, updatedMeeting);
   } catch (error) {
     console.error('Error handling event.deleted:', error);
   }
@@ -453,62 +365,21 @@ async function handleEventDeleted(data: any) {
 // Helper function to find a meeting by calendar event ID
 async function findMeetingByCalendarEventId(eventId: string) {
   try {
-    console.log(`Searching for meeting with event ID: ${eventId}`);
-    
-    // First try to find by meetingBaasId (direct match)
+    // Try to find by calendarEventId first (new field)
     let meeting = await prisma.meeting.findFirst({
-      where: {
-        meetingBaasId: eventId
-      }
+      where: { calendarEventId: eventId }
     });
     
-    if (meeting) {
-      console.log(`Found meeting ${meeting.id} with meetingBaasId ${eventId}`);
-      return meeting;
+    if (!meeting) {
+      // Fallback: try to find by meetingBaasId (legacy)
+      meeting = await prisma.meeting.findFirst({
+        where: { meetingBaasId: eventId }
+      });
     }
     
-    // If not found, try to find by checking the event ID in meeting changes
-    meeting = await prisma.meeting.findFirst({
-      where: {
-        changes: {
-          some: {
-            eventId: eventId
-          }
-        }
-      },
-      include: {
-        changes: {
-          where: {
-            eventId: eventId
-          },
-          take: 1
-        }
-      }
-    });
-    
-    if (meeting) {
-      console.log(`Found meeting ${meeting.id} through associated event ID ${eventId} in meeting changes`);
-      return meeting;
-    }
-    
-    // Additional fallback: check Google Calendar event IDs in the meeting data
-    // This assumes your meeting might have calendar event details stored in it
-    const meetings = await prisma.meeting.findMany({
-      where: {
-        googleMeetLink: {
-          not: null
-        }
-      }
-    });
-    
-    // Log that we're searching through all meetings as a last resort
-    console.log(`Searching through ${meetings.length} meetings with Google Meet links for event ID ${eventId}`);
-    
-    // No meeting found with this event ID
-    console.log(`No meeting found with event ID ${eventId}`);
-    return null;
+    return meeting;
   } catch (error) {
-    console.error(`Error finding meeting for event ${eventId}:`, error);
+    console.error('Error finding meeting by calendar event ID:', error);
     return null;
   }
 } 
