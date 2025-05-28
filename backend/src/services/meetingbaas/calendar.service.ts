@@ -56,9 +56,12 @@ export class MeetingBaasCalendarService {
     try {
       console.log(`Setting up ${provider} calendar integration for user ${userId}`);
 
+      // Map provider string to Provider enum
+      const platformProvider = provider === 'google' ? 'Google' as Provider : 'Microsoft' as Provider;
+
       // Create calendar integration via MeetingBaas
       const meetingBaasCalendar = await this.getClient().createCalendar({
-        platform: provider as Provider,
+        platform: platformProvider,
         oauthClientId: clientId || MeetingBaasConfig.oauth[provider].clientId!,
         oauthClientSecret: clientSecret || MeetingBaasConfig.oauth[provider].clientSecret!,
         oauthRefreshToken: refreshToken,
@@ -110,8 +113,11 @@ export class MeetingBaasCalendarService {
     clientSecret?: string
   ) {
     try {
+      // Map provider string to Provider enum
+      const platformProvider = provider === 'google' ? 'Google' as Provider : 'Microsoft' as Provider;
+
       return await this.getClient().listRawCalendars({
-        platform: provider as Provider,
+        platform: platformProvider,
         oauthClientId: clientId || MeetingBaasConfig.oauth[provider].clientId!,
         oauthClientSecret: clientSecret || MeetingBaasConfig.oauth[provider].clientSecret!,
         oauthRefreshToken: refreshToken,

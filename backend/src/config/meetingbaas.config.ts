@@ -12,8 +12,8 @@ export const MeetingBaasConfig = {
     defaultWebhookUrl: `${process.env.BASE_URL || 'http://localhost:3001'}/api/meetingbaas/webhooks`,
     recordingMode: "speaker_view" as const,
     speechToText: {
-      provider: "deepgram" as const,
-      apiKey: process.env.DEEPGRAM_API_KEY,
+      provider: "Default" as const,
+      apiKey: process.env.GLADIA_API_KEY,
     },
     automaticLeave: {
       nooneJoinedTimeout: 300, // 5 minutes

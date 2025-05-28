@@ -114,17 +114,52 @@ export class MeetingBaasClientService {
   // Calendar Management Methods - Based on MCP Documentation
   async createCalendar(params: CreateCalendarParams): Promise<Calendar> {
     try {
-      console.log('📅 Creating calendar integration:', {
+      console.log('📅 Creating calendar integration with detailed params:', {
         platform: params.platform,
-        oauthClientId: params.oauthClientId ? '***' : 'not provided'
+        oauthClientId: params.oauthClientId ? '***' : 'not provided',
+        oauthClientSecret: params.oauthClientSecret ? '***' : 'not provided',
+        oauthRefreshToken: params.oauthRefreshToken ? '***' : 'not provided',
+        raw_calendar_id: params.raw_calendar_id || 'not provided',
+        fullParams: JSON.stringify(params, (key, value) => {
+          if (key.includes('oauth') || key.includes('token') || key.includes('secret')) {
+            return '***';
+          }
+          return value;
+        }, 2)
       });
 
-      const response = await this.calendarsApi.createCalendar({ createCalendarParams: params });
-      console.log('✅ Successfully created calendar integration');
+      // WORKAROUND: The SDK has a bug where it doesn't transform camelCase to snake_case
+      // So we need to manually create the correct API payload
+      const apiPayload = {
+        platform: params.platform,
+        oauth_client_id: params.oauthClientId,
+        oauth_client_secret: params.oauthClientSecret,
+        oauth_refresh_token: params.oauthRefreshToken,
+        ...(params.raw_calendar_id && { raw_calendar_id: params.raw_calendar_id })
+      };
+
+      console.log('📤 Sending API request with snake_case params:', {
+        platform: apiPayload.platform,
+        oauth_client_id: apiPayload.oauth_client_id ? '***' : 'not provided',
+        oauth_client_secret: apiPayload.oauth_client_secret ? '***' : 'not provided',
+        oauth_refresh_token: apiPayload.oauth_refresh_token ? '***' : 'not provided',
+        raw_calendar_id: apiPayload.raw_calendar_id || 'not provided'
+      });
+
+      // Use the SDK's underlying API call with the correct payload
+      const response = await this.calendarsApi.createCalendar({ createCalendarParams: apiPayload as any });
+      console.log('✅ Calendar created successfully:', response.data.calendar);
       return response.data.calendar;
-    } catch (error) {
-      console.error('❌ Failed to create calendar:', error);
-      throw new Error(`Failed to create calendar: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } catch (error: any) {
+      console.log('❌ Failed to create calendar with detailed error:', {
+        error,
+        errorMessage: error.message,
+        errorStack: error.stack,
+        responseData: error.response?.data,
+        responseStatus: error.response?.status,
+        responseHeaders: error.response?.headers
+      });
+      throw new Error(`Failed to create calendar: ${error.message}`);
     }
   }
 
