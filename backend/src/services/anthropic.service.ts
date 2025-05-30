@@ -211,69 +211,67 @@ export class AnthropicService {
       // If we need to parse JSON and responseFormat is json
       if (options.parseJSON && options.responseFormat === 'json') {
         console.log('Raw response content:', responseContent);
+        console.log('Response content length:', responseContent.length);
         
+        // Method 1: Try direct parsing first
         try {
-          // Method 1: Try direct parsing first
-          try {
-            const parsed = JSON.parse(responseContent);
-            console.log('Direct JSON parsing successful');
-            return parsed;
-          } catch (directParseError) {
-            console.log('Direct parsing failed, trying to extract JSON block');
-          }
-          
-          // Method 2: Extract JSON block between first { and last }
-          const firstBrace = responseContent.indexOf('{');
-          const lastBrace = responseContent.lastIndexOf('}');
-          
-          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-            const jsonBlock = responseContent.substring(firstBrace, lastBrace + 1);
-            try {
-              const parsed = JSON.parse(jsonBlock);
-              console.log('JSON block extraction successful');
-              return parsed;
-            } catch (blockParseError) {
-              console.log('JSON block parsing failed');
-            }
-          }
-          
-          // Method 3: Try to clean the response and parse
-          try {
-            // Remove markdown code blocks if present
-            let cleaned = responseContent.replace(/```json\s*/g, '').replace(/```\s*/g, '');
-            
-            // Find JSON object boundaries more carefully
-            const jsonStart = cleaned.indexOf('{');
-            const jsonEnd = cleaned.lastIndexOf('}');
-            
-            if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-              cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
-              
-              // Clean up common issues
-              cleaned = cleaned
-                .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
-                .replace(/\n\s*/g, ' ') // Replace newlines with spaces
-                .replace(/\r/g, '') // Remove carriage returns
-                .replace(/\t/g, ' ') // Replace tabs with spaces
-                .replace(/,\s*}/g, '}') // Remove trailing commas
-                .replace(/,\s*]/g, ']'); // Remove trailing commas in arrays
-              
-              const parsed = JSON.parse(cleaned);
-              console.log('Cleaned JSON parsing successful');
-              return parsed;
-            }
-          } catch (cleanParseError) {
-            console.log('Cleaned JSON parsing failed');
-          }
-          
-          // If all parsing fails, log and throw
-          console.error('All JSON parsing methods failed');
-          throw new Error('Failed to parse JSON response from Claude');
-          
-        } catch (parseError) {
-          console.error('Error parsing Claude JSON response:', parseError);
-          throw parseError;
+          const parsed = JSON.parse(responseContent);
+          console.log('Direct JSON parsing successful');
+          return parsed;
+        } catch (directParseError) {
+          console.log('Direct parsing failed:', directParseError);
         }
+        
+        // Method 2: Extract JSON block between first { and last }
+        const firstBrace = responseContent.indexOf('{');
+        const lastBrace = responseContent.lastIndexOf('}');
+        
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          const jsonBlock = responseContent.substring(firstBrace, lastBrace + 1);
+          console.log('Extracted JSON block length:', jsonBlock.length);
+          try {
+            const parsed = JSON.parse(jsonBlock);
+            console.log('JSON block extraction successful');
+            return parsed;
+          } catch (blockParseError) {
+            console.log('JSON block parsing failed:', blockParseError);
+          }
+        }
+        
+        // Method 3: Try to clean the response and parse
+        try {
+          // Remove markdown code blocks if present
+          let cleaned = responseContent.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+          
+          // Find JSON object boundaries more carefully
+          const jsonStart = cleaned.indexOf('{');
+          const jsonEnd = cleaned.lastIndexOf('}');
+          
+          if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+            cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+            
+            // Clean up common issues
+            cleaned = cleaned
+              .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+              .replace(/\n\s*/g, ' ') // Replace newlines with spaces
+              .replace(/\r/g, '') // Remove carriage returns
+              .replace(/\t/g, ' ') // Replace tabs with spaces
+              .replace(/,\s*}/g, '}') // Remove trailing commas
+              .replace(/,\s*]/g, ']'); // Remove trailing commas in arrays
+            
+            console.log('Cleaned JSON length:', cleaned.length);
+            const parsed = JSON.parse(cleaned);
+            console.log('Cleaned JSON parsing successful');
+            return parsed;
+          }
+        } catch (cleanParseError) {
+          console.log('Cleaned JSON parsing failed:', cleanParseError);
+        }
+        
+        // If all parsing fails, log and throw
+        console.error('All JSON parsing methods failed');
+        console.error('Response content preview:', responseContent.substring(0, 500));
+        throw new Error('Failed to parse JSON response from Claude');
       }
       
       // Return the raw text response

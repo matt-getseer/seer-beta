@@ -328,9 +328,19 @@ export class MeetingBaasCalendarService {
             startDateLte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
           });
 
-          // TODO: Process and store events in local database if needed
-          // For now, we just log the sync
-          console.log(`Synced ${events.data?.length || 0} events for calendar ${integration.calendarId}`);
+          // Process and update events in local database
+          let updatedCount = 0;
+          for (const event of events.data || []) {
+            try {
+              const updated = await this.updateMeetingFromCalendarEvent(event, userId);
+              if (updated) updatedCount++;
+            } catch (eventError) {
+              console.error(`Error updating meeting from event ${event.uuid}:`, eventError);
+              // Continue with other events
+            }
+          }
+
+          console.log(`Synced ${events.data?.length || 0} events for calendar ${integration.calendarId}, updated ${updatedCount} meetings`);
 
           // Update last sync time
           await prisma.calendarIntegration.update({
@@ -347,6 +357,100 @@ export class MeetingBaasCalendarService {
     } catch (error) {
       console.error('Error syncing calendar events:', error);
       throw new Error(`Failed to sync calendar events: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Update a meeting from calendar event data
+   */
+  private async updateMeetingFromCalendarEvent(event: any, userId: string): Promise<boolean> {
+    try {
+      // Find the meeting by calendar event ID
+      const meeting = await prisma.meeting.findFirst({
+        where: { 
+          calendarEventId: event.uuid,
+          createdBy: userId // Ensure user owns this meeting
+        }
+      });
+
+      if (!meeting) {
+        // No meeting found for this calendar event
+        return false;
+      }
+
+      // Check if any fields need updating
+      const updateData: any = {
+        lastSyncedAt: new Date()
+      };
+
+      let hasChanges = false;
+      const changes: any = {
+        meetingId: meeting.id,
+        changeType: 'synced',
+        eventId: event.uuid,
+        changeData: event
+      };
+
+      // Check title changes
+      if (event.name && event.name !== meeting.title) {
+        updateData.title = event.name;
+        changes.previousTitle = meeting.title;
+        changes.newTitle = event.name;
+        hasChanges = true;
+      }
+
+      // Check date/time changes
+      if (event.startTime) {
+        const newDate = new Date(event.startTime);
+        if (Math.abs(newDate.getTime() - meeting.date.getTime()) > 60000) { // More than 1 minute difference
+          updateData.date = newDate;
+          changes.previousDate = meeting.date;
+          changes.newDate = newDate;
+          hasChanges = true;
+        }
+      }
+
+      // Check duration changes (convert from seconds to minutes if needed)
+      if (event.duration) {
+        let newDuration = event.duration;
+        // If duration is in seconds, convert to minutes
+        if (newDuration > 1440) { // More than 24 hours in minutes, likely in seconds
+          newDuration = Math.round(newDuration / 60);
+        }
+        
+        if (newDuration !== meeting.duration) {
+          updateData.duration = newDuration;
+          changes.previousDuration = meeting.duration;
+          changes.newDuration = newDuration;
+          hasChanges = true;
+        }
+      }
+
+      // Update the meeting if there are changes
+      if (hasChanges) {
+        await prisma.meeting.update({
+          where: { id: meeting.id },
+          data: updateData
+        });
+
+        // Record the change
+        await prisma.meetingChange.create({
+          data: changes
+        });
+
+        console.log(`✅ Updated meeting ${meeting.id} from calendar sync: ${Object.keys(updateData).filter(k => k !== 'lastSyncedAt').join(', ')}`);
+        return true;
+      } else {
+        // Just update the sync time
+        await prisma.meeting.update({
+          where: { id: meeting.id },
+          data: { lastSyncedAt: new Date() }
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error(`Error updating meeting from calendar event:`, error);
+      return false;
     }
   }
 

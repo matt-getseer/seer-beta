@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { X, CaretDown, Check } from 'phosphor-react';
+import { X, CaretDown, Check, Calendar } from 'phosphor-react';
 import axios from 'axios';
 import { useAuth } from '@clerk/clerk-react';
 import { useApiState } from '../hooks/useApiState';
-import { Listbox, Transition } from '@headlessui/react';
+import { Listbox, Transition, Popover } from '@headlessui/react';
+import { format } from 'date-fns';
 
 // Use a direct URL reference instead of process.env
 const API_URL = 'http://localhost:3001';
@@ -29,12 +30,57 @@ interface NewMeetingModalProps {
 const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalProps) => {
   const [title, setTitle] = useState('');
   const [teamMember, setTeamMember] = useState('');
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [hour, setHour] = useState('09');
+  const [minute, setMinute] = useState('00');
   const [duration, setDuration] = useState('60');
   const [{ loading, error }, { setLoading, setError }] = useApiState(false);
   const [teamMembers, setTeamMembers] = useState<Team[]>([]);
   const { getToken } = useAuth();
+
+  // Generate hour options (00-23)
+  const hourOptions = Array.from({ length: 24 }, (_, i) => {
+    const hour = i.toString().padStart(2, '0');
+    return { value: hour, label: hour };
+  });
+
+  // Generate minute options in 15-minute increments
+  const minuteOptions = [
+    { value: '00', label: '00' },
+    { value: '15', label: '15' },
+    { value: '30', label: '30' },
+    { value: '45', label: '45' }
+  ];
+
+  // Format date for display like Google's style
+  const formatDateForDisplay = (date: Date | null): string => {
+    if (!date) return 'Select date';
+    return format(date, 'EEEE, d MMMM'); // e.g., "Friday, 30 May"
+  };
+
+  // Generate calendar days for current month
+  const generateCalendarDays = () => {
+    const today = new Date();
+    const currentMonth = selectedDate || today;
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDate = new Date(firstDay);
+    startDate.setDate(startDate.getDate() - firstDay.getDay()); // Start from Sunday
+    
+    const days = [];
+    const current = new Date(startDate);
+    
+    // Generate 42 days (6 weeks)
+    for (let i = 0; i < 42; i++) {
+      days.push(new Date(current));
+      current.setDate(current.getDate() + 1);
+    }
+    
+    return { days, currentMonth: new Date(year, month, 1) };
+  };
 
   // Fetch current user and team members
   useEffect(() => {
@@ -79,8 +125,16 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
     setError(null);
 
     try {
-      // Format the date and time
-      const dateTime = new Date(`${date}T${time}`);
+      // Format the date and time using the separate hour and minute values
+      if (!selectedDate) {
+        setError('Please select a date');
+        setLoading(false);
+        return;
+      }
+      
+      const time = `${hour}:${minute}`;
+      const dateString = format(selectedDate, 'yyyy-MM-dd');
+      const dateTime = new Date(`${dateString}T${time}`);
       
       const token = await getToken();
       await axios.post(
@@ -106,8 +160,9 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
       // Reset form
       setTitle('');
       setTeamMember('');
-      setDate('');
-      setTime('');
+      setSelectedDate(null);
+      setHour('09');
+      setMinute('00');
       setDuration('60');
     } catch (error) {
       // Error creating meeting
@@ -226,38 +281,232 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
             </Listbox>
           </div>
 
+          <div className="mb-4">
+            <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">
+              Date
+            </label>
+            <Popover className="relative">
+              <Popover.Button className="relative w-full cursor-pointer rounded-md bg-white py-2 pl-3 pr-10 text-left border border-gray-300 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                <span className="block truncate text-gray-900">
+                  {formatDateForDisplay(selectedDate)}
+                </span>
+                <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                  <Calendar
+                    size={20}
+                    className="text-gray-400"
+                    aria-hidden="true"
+                  />
+                </span>
+              </Popover.Button>
+              <Transition
+                leave="transition ease-in duration-100"
+                leaveFrom="opacity-100"
+                leaveTo="opacity-0"
+              >
+                <Popover.Panel className="absolute z-50 mt-1 w-80 rounded-md bg-white p-4 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                  {({ close }) => {
+                    const { days, currentMonth } = generateCalendarDays();
+                    const today = new Date();
+                    
+                    return (
+                      <div>
+                        {/* Month navigation */}
+                        <div className="flex items-center justify-between mb-4">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newDate = new Date(currentMonth);
+                              newDate.setMonth(newDate.getMonth() - 1);
+                              setSelectedDate(newDate);
+                            }}
+                            className="p-1 hover:bg-gray-100 rounded"
+                          >
+                            <CaretDown size={16} className="rotate-90 text-gray-600" />
+                          </button>
+                          <h3 className="text-sm font-medium text-gray-900">
+                            {format(currentMonth, 'MMMM yyyy')}
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newDate = new Date(currentMonth);
+                              newDate.setMonth(newDate.getMonth() + 1);
+                              setSelectedDate(newDate);
+                            }}
+                            className="p-1 hover:bg-gray-100 rounded"
+                          >
+                            <CaretDown size={16} className="-rotate-90 text-gray-600" />
+                          </button>
+                        </div>
+                        
+                        {/* Day headers */}
+                        <div className="grid grid-cols-7 gap-1 mb-2">
+                          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => (
+                            <div key={day} className="text-xs font-medium text-gray-500 text-center py-1">
+                              {day}
+                            </div>
+                          ))}
+                        </div>
+                        
+                        {/* Calendar days */}
+                        <div className="grid grid-cols-7 gap-1">
+                          {days.map((day, index) => {
+                            const isCurrentMonth = day.getMonth() === currentMonth.getMonth();
+                            const isToday = day.toDateString() === today.toDateString();
+                            const isSelected = selectedDate && day.toDateString() === selectedDate.toDateString();
+                            const isPast = day < today && !isToday;
+                            
+                            return (
+                              <button
+                                key={index}
+                                type="button"
+                                disabled={isPast}
+                                onClick={() => {
+                                  setSelectedDate(day);
+                                  close();
+                                }}
+                                className={`
+                                  w-8 h-8 text-sm rounded-full flex items-center justify-center
+                                  ${!isCurrentMonth ? 'text-gray-300' : ''}
+                                  ${isPast ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100'}
+                                  ${isToday ? 'bg-gray-100 font-medium' : ''}
+                                  ${isSelected ? 'bg-indigo-600 text-white hover:bg-indigo-700' : ''}
+                                  ${isCurrentMonth && !isPast && !isSelected ? 'text-gray-900' : ''}
+                                `}
+                              >
+                                {day.getDate()}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }}
+                </Popover.Panel>
+              </Transition>
+            </Popover>
+          </div>
+
           <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">
-                Date
-              </label>
-              <input
-                id="date"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              />
-            </div>
             <div>
               <label htmlFor="time" className="block text-sm font-medium text-gray-700 mb-1">
                 Time
               </label>
-              <input
-                id="time"
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              />
+              <div className="grid grid-cols-2 gap-2">
+                {/* Hour Selector */}
+                <Listbox value={hour} onChange={setHour}>
+                  <div className="relative">
+                    <Listbox.Button className="relative w-full cursor-pointer rounded-md bg-white py-2 pl-3 pr-10 text-left border border-gray-300 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                      <span className="block truncate text-gray-900">
+                        {hour}
+                      </span>
+                      <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                        <CaretDown
+                          size={16}
+                          className="text-gray-400"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </Listbox.Button>
+                    <Transition
+                      leave="transition ease-in duration-100"
+                      leaveFrom="opacity-100"
+                      leaveTo="opacity-0"
+                    >
+                      <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
+                        {hourOptions.map((option) => (
+                          <Listbox.Option
+                            key={option.value}
+                            className={({ active }) =>
+                              `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
+                                active ? 'bg-indigo-100 text-indigo-900' : 'text-gray-900'
+                              }`
+                            }
+                            value={option.value}
+                          >
+                            {({ selected }) => (
+                              <>
+                                <span
+                                  className={`block truncate ${
+                                    selected ? 'font-medium' : 'font-normal'
+                                  }`}
+                                >
+                                  {option.label}
+                                </span>
+                                {selected ? (
+                                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-indigo-600">
+                                    <Check size={20} aria-hidden="true" />
+                                  </span>
+                                ) : null}
+                              </>
+                            )}
+                          </Listbox.Option>
+                        ))}
+                      </Listbox.Options>
+                    </Transition>
+                  </div>
+                </Listbox>
+                
+                {/* Minute Selector */}
+                <Listbox value={minute} onChange={setMinute}>
+                  <div className="relative">
+                    <Listbox.Button className="relative w-full cursor-pointer rounded-md bg-white py-2 pl-3 pr-10 text-left border border-gray-300 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                      <span className="block truncate text-gray-900">
+                        {minute}
+                      </span>
+                      <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                        <CaretDown
+                          size={16}
+                          className="text-gray-400"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </Listbox.Button>
+                    <Transition
+                      leave="transition ease-in duration-100"
+                      leaveFrom="opacity-100"
+                      leaveTo="opacity-0"
+                    >
+                      <Listbox.Options className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
+                        {minuteOptions.map((option) => (
+                          <Listbox.Option
+                            key={option.value}
+                            className={({ active }) =>
+                              `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
+                                active ? 'bg-indigo-100 text-indigo-900' : 'text-gray-900'
+                              }`
+                            }
+                            value={option.value}
+                          >
+                            {({ selected }) => (
+                              <>
+                                <span
+                                  className={`block truncate ${
+                                    selected ? 'font-medium' : 'font-normal'
+                                  }`}
+                                >
+                                  {option.label}
+                                </span>
+                                {selected ? (
+                                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-indigo-600">
+                                    <Check size={20} aria-hidden="true" />
+                                  </span>
+                                ) : null}
+                              </>
+                            )}
+                          </Listbox.Option>
+                        ))}
+                      </Listbox.Options>
+                    </Transition>
+                  </div>
+                </Listbox>
+              </div>
             </div>
           </div>
 
           <div className="mb-4">
             <label htmlFor="duration" className="block text-sm font-medium text-gray-700 mb-1">
-              Duration (minutes)
+              Duration
             </label>
             <Listbox value={duration} onChange={setDuration}>
               <div className="relative">
@@ -266,9 +515,7 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
                     {duration === '15' ? '15 minutes' :
                      duration === '30' ? '30 minutes' :
                      duration === '45' ? '45 minutes' :
-                     duration === '60' ? '1 hour' :
-                     duration === '90' ? '1.5 hours' :
-                     duration === '120' ? '2 hours' : '1 hour'}
+                     duration === '60' ? '1 hour' : '1 hour'}
                   </span>
                   <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
                     <CaretDown
@@ -375,56 +622,6 @@ const NewMeetingModal = ({ isOpen, onClose, onMeetingCreated }: NewMeetingModalP
                             }`}
                           >
                             1 hour
-                          </span>
-                          {selected ? (
-                            <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-indigo-600">
-                              <Check size={20} aria-hidden="true" />
-                            </span>
-                          ) : null}
-                        </>
-                      )}
-                    </Listbox.Option>
-                    <Listbox.Option
-                      className={({ active }) =>
-                        `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
-                          active ? 'bg-indigo-100 text-indigo-900' : 'text-gray-900'
-                        }`
-                      }
-                      value="90"
-                    >
-                      {({ selected }) => (
-                        <>
-                          <span
-                            className={`block truncate ${
-                              selected ? 'font-medium' : 'font-normal'
-                            }`}
-                          >
-                            1.5 hours
-                          </span>
-                          {selected ? (
-                            <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-indigo-600">
-                              <Check size={20} aria-hidden="true" />
-                            </span>
-                          ) : null}
-                        </>
-                      )}
-                    </Listbox.Option>
-                    <Listbox.Option
-                      className={({ active }) =>
-                        `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
-                          active ? 'bg-indigo-100 text-indigo-900' : 'text-gray-900'
-                        }`
-                      }
-                      value="120"
-                    >
-                      {({ selected }) => (
-                        <>
-                          <span
-                            className={`block truncate ${
-                              selected ? 'font-medium' : 'font-normal'
-                            }`}
-                          >
-                            2 hours
                           </span>
                           {selected ? (
                             <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-indigo-600">
