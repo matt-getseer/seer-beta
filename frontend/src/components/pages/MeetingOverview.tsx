@@ -10,6 +10,7 @@ import type { TeamMember, Task } from '../../interfaces';
 import { meetingApi, userApi } from '../../utils/api';
 import { useApiState } from '../../hooks/useApiState';
 import { formatMeetingDateTime, formatDuration } from '../../utils/dateUtils';
+import { parseMeetingBaasTranscript } from '../../utils/transcriptParser';
 import StatusBadge from '../StatusBadge';
 
 // Use a direct URL reference instead of process.env
@@ -850,7 +851,7 @@ const MeetingOverview = () => {
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Transcript</h2>
                 {meeting.transcript ? (
                   <div className="bg-gray-50 p-4 rounded-lg whitespace-pre-line text-gray-700">
-                    {meeting.transcript}
+                    {parseMeetingBaasTranscript(meeting.transcript)}
                   </div>
                 ) : (
                   <div className="bg-gray-50 p-4 rounded-lg text-gray-500 italic">

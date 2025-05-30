@@ -64,7 +64,37 @@ export class MeetingBaasClientService {
         botName: joinRequest.botName
       });
 
-      const response = await this.defaultApi.join({ joinRequest });
+      // WORKAROUND: The SDK has a bug where it doesn't transform camelCase to snake_case
+      // So we need to manually create the correct API payload
+      const apiPayload: any = {
+        meeting_url: joinRequest.meetingUrl,
+        bot_name: joinRequest.botName,
+        webhook_url: joinRequest.webhook_url,
+        extra: joinRequest.extra,
+        reserved: joinRequest.reserved,
+      };
+
+      // Only add optional fields if they exist
+      if (joinRequest.speech_to_text) {
+        apiPayload.speech_to_text = joinRequest.speech_to_text;
+      }
+      if (joinRequest.recording_mode) {
+        apiPayload.recording_mode = joinRequest.recording_mode;
+      }
+      if (joinRequest.automatic_leave) {
+        apiPayload.automatic_leave = joinRequest.automatic_leave;
+      }
+
+      console.log('📤 Sending API request with snake_case params:', {
+        meeting_url: apiPayload.meeting_url,
+        bot_name: apiPayload.bot_name,
+        webhook_url: apiPayload.webhook_url ? '***' : 'not provided',
+        extra: apiPayload.extra,
+        reserved: apiPayload.reserved
+      });
+
+      // Use the SDK's underlying API call with the correct payload
+      const response = await this.defaultApi.join({ joinRequest: apiPayload as any });
       console.log('✅ Successfully joined meeting:', response.data);
       return response.data;
     } catch (error) {
@@ -200,16 +230,35 @@ export class MeetingBaasClientService {
     try {
       console.log('📅 Listing calendar events for:', calendarId);
 
-      const response = await this.calendarsApi.listEvents({
+      // Build the request parameters, only including non-empty values
+      const requestParams: any = {
         calendarId,
-        attendeeEmail: params?.attendeeEmail || '',
-        cursor: params?.cursor || '',
-        organizerEmail: params?.organizerEmail || '',
-        startDateGte: params?.startDateGte || '',
-        startDateLte: params?.startDateLte || '',
-        status: params?.status || '',
-        updatedAtGte: params?.updatedAtGte || ''
-      });
+      };
+
+      // Only add parameters that have actual values
+      if (params?.attendeeEmail) {
+        requestParams.attendeeEmail = params.attendeeEmail;
+      }
+      if (params?.cursor) {
+        requestParams.cursor = params.cursor;
+      }
+      if (params?.organizerEmail) {
+        requestParams.organizerEmail = params.organizerEmail;
+      }
+      if (params?.startDateGte) {
+        requestParams.startDateGte = params.startDateGte;
+      }
+      if (params?.startDateLte) {
+        requestParams.startDateLte = params.startDateLte;
+      }
+      if (params?.status) {
+        requestParams.status = params.status;
+      }
+      if (params?.updatedAtGte) {
+        requestParams.updatedAtGte = params.updatedAtGte;
+      }
+
+      const response = await this.calendarsApi.listEvents(requestParams);
       console.log('✅ Successfully retrieved calendar events');
       return response.data;
     } catch (error) {

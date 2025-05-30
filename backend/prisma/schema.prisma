@@ -138,6 +138,7 @@ model Meeting {
   
   // NLP Results
   transcript        String?   @db.Text
+  speakers          String[]  @default([]) // List of speakers detected by MeetingBaas
   executiveSummary  String?   @db.Text
   wins              String[]  
   areasForSupport   String[]

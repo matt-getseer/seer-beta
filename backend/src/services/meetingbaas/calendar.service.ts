@@ -199,19 +199,29 @@ export class MeetingBaasCalendarService {
     try {
       console.log(`Scheduling recording for event ${eventId}`);
 
-      // Prepare bot parameters with defaults from config
+      // Prepare bot parameters with correct field names and valid values for MeetingBaas API
       const botParams = {
-        botName: options?.customBotConfig?.botName || MeetingBaasConfig.bot.defaultName,
+        bot_name: options?.customBotConfig?.botName || options?.customBotConfig?.bot_name || MeetingBaasConfig.bot.defaultName,
         recording_mode: options?.customBotConfig?.recording_mode || MeetingBaasConfig.bot.recordingMode,
-        speech_to_text: {
-          provider: MeetingBaasConfig.bot.speechToText.provider,
+        speech_to_text: MeetingBaasConfig.bot.speechToText.apiKey ? {
+          provider: MeetingBaasConfig.bot.speechToText.provider, // Should be "Default", "Gladia", or "Runpod"
           api_key: MeetingBaasConfig.bot.speechToText.apiKey,
-        },
+        } : "Default", // Fallback to "Default" if no API key
         webhook_url: options?.customBotConfig?.webhook_url || MeetingBaasConfig.bot.defaultWebhookUrl,
         noone_joined_timeout: options?.customBotConfig?.noone_joined_timeout || MeetingBaasConfig.bot.automaticLeave.nooneJoinedTimeout,
         waiting_room_timeout: options?.customBotConfig?.waiting_room_timeout || MeetingBaasConfig.bot.automaticLeave.waitingRoomTimeout,
+        extra: options?.customBotConfig?.extra || {
+          source: 'seer-app',
+          version: '2.0',
+        },
+        // Override with any additional custom config (but preserve the corrected field names above)
         ...options?.customBotConfig
       };
+
+      // Ensure we have the required fields with correct names
+      if (options?.customBotConfig?.botName && !botParams.bot_name) {
+        botParams.bot_name = options.customBotConfig.botName;
+      }
 
       const result = await this.getClient().scheduleRecordEvent(
         eventId,

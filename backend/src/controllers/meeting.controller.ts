@@ -366,29 +366,40 @@ export class MeetingController {
       }
       
       const meetingDate = new Date(date);
+      const endDate = new Date(meetingDate.getTime() + (Number(duration) * 60 * 1000));
       
-      // Create meeting in our database first
-      const meeting = await prisma.meeting.create({
-        data: {
-          title,
-          teamMemberId,
-          date: meetingDate,
-          duration: Number(duration),
-          status: 'scheduled',
-          processingStatus: 'pending',
-          platform: platform,
-          createdBy: userId,
-          meetingType: meetingType || "one_on_one",
-          wins: [],
-          areasForSupport: [],
-          tasks: []
-        } as any
+      // Get team member email for calendar invite
+      const teamMember = await prisma.user.findUnique({
+        where: { id: teamMemberId },
+        select: { email: true, name: true }
       });
       
-      console.log(`Meeting created in database: ${meeting.id}`);
+      if (!teamMember) {
+        return res.status(400).json({ error: 'Team member not found' });
+      }
       
-      // If a meeting URL is provided, create a bot for it
+      // If meetingUrl is provided, create meeting the old way for backward compatibility
       if (meetingUrl) {
+        // Create meeting in our database first
+        const meeting = await prisma.meeting.create({
+          data: {
+            title,
+            teamMemberId,
+            date: meetingDate,
+            duration: Number(duration),
+            status: 'scheduled',
+            processingStatus: 'pending',
+            platform: platform,
+            createdBy: userId,
+            meetingType: meetingType || "one_on_one",
+            wins: [],
+            areasForSupport: [],
+            tasks: []
+          } as any
+        });
+        
+        console.log(`Meeting created in database: ${meeting.id}`);
+        
         try {
           console.log(`Creating bot for provided meeting URL: ${meetingUrl}`);
           
@@ -442,13 +453,85 @@ export class MeetingController {
           });
         }
       } else {
-        // No meeting URL provided - meeting created without bot
-        console.log('No meeting URL provided, meeting created without bot');
+        // NEW: Use integrated calendar service to create calendar event + bot
+        console.log('Creating meeting with integrated calendar service');
         
-        return res.status(201).json({
-          ...meeting,
-          message: 'Meeting created successfully. Add a meeting URL later to enable recording.'
-        });
+        try {
+          const { IntegratedCalendarService } = await import('../services/integrated-calendar.service');
+          const integratedService = new IntegratedCalendarService();
+          
+          // Create calendar event with recording enabled
+          const calendarEvent = await integratedService.createEventWithRecording(userId, {
+            summary: title,
+            description: `Meeting with ${teamMember.name}`,
+            startTime: meetingDate,
+            endTime: endDate,
+            attendees: [teamMember.email],
+            meetingPlatform: platform as 'google_meet',
+            enableRecording: true
+          });
+          
+          // Create meeting in our database with calendar event details
+          const meeting = await prisma.meeting.create({
+            data: {
+              title,
+              teamMemberId,
+              date: meetingDate,
+              duration: Number(duration),
+              status: 'scheduled',
+              processingStatus: 'pending',
+              platform: platform,
+              createdBy: userId,
+              meetingType: meetingType || "one_on_one",
+              wins: [],
+              areasForSupport: [],
+              tasks: [],
+              calendarEventId: calendarEvent.id,
+              googleMeetLink: calendarEvent.meetingUrl,
+              platformMeetingUrl: calendarEvent.meetingUrl,
+              meetingBaasId: calendarEvent.recordingId
+            } as any
+          });
+          
+          console.log(`Meeting created with calendar integration: ${meeting.id}`);
+          console.log(`Calendar event: ${calendarEvent.id}, Recording: ${calendarEvent.recordingId}`);
+          
+          return res.status(201).json({
+            ...meeting,
+            calendarEvent: {
+              id: calendarEvent.id,
+              htmlLink: calendarEvent.htmlLink
+            },
+            message: 'Meeting created with calendar event and recording bot scheduled successfully'
+          });
+          
+        } catch (calendarError) {
+          console.error('Error creating meeting with calendar integration:', calendarError);
+          
+          // Fallback: create meeting without calendar integration
+          const meeting = await prisma.meeting.create({
+            data: {
+              title,
+              teamMemberId,
+              date: meetingDate,
+              duration: Number(duration),
+              status: 'scheduled',
+              processingStatus: 'failed',
+              platform: platform,
+              createdBy: userId,
+              meetingType: meetingType || "one_on_one",
+              wins: [],
+              areasForSupport: [],
+              tasks: []
+            } as any
+          });
+          
+          return res.status(201).json({
+            ...meeting,
+            message: 'Meeting created but calendar integration failed. You can add a meeting URL later.',
+            calendarError: calendarError instanceof Error ? calendarError.message : String(calendarError)
+          });
+        }
       }
       
     } catch (error) {
@@ -543,34 +626,48 @@ export class MeetingController {
       
       console.log(`Deleting meeting ${meetingId}: calendarEventId=${existingMeeting.calendarEventId}, meetingBaasId=${existingMeeting.meetingBaasId}`);
       
-      // Clean up MeetingBaas bot if it exists
-      if (existingMeeting.meetingBaasId) {
+      // Clean up calendar event and recording if it exists
+      if (existingMeeting.calendarEventId) {
         try {
-          // TODO: Implement bot cleanup when MeetingBaas bot service supports it
-          console.log(`Meeting has MeetingBaas bot ${existingMeeting.meetingBaasId} - cleanup not yet implemented`);
+          console.log(`Cleaning up calendar event ${existingMeeting.calendarEventId}...`);
+          
+          // Use the integrated calendar service to delete both calendar event and recording
+          const { IntegratedCalendarService } = await import('../services/integrated-calendar.service');
+          const integratedService = new IntegratedCalendarService();
+          
+          await integratedService.deleteEventWithRecording(
+            existingMeeting.createdBy, 
+            existingMeeting.calendarEventId
+          );
+          
+          console.log(`✅ Successfully deleted calendar event and recording for meeting ${meetingId}`);
+        } catch (calendarError) {
+          console.error(`❌ Error cleaning up calendar event ${existingMeeting.calendarEventId}:`, calendarError);
+          // Continue with deletion even if calendar cleanup fails
+        }
+      } else if (existingMeeting.meetingBaasId) {
+        // If there's no calendar event but there's a MeetingBaas bot, clean it up directly
+        try {
+          console.log(`Cleaning up MeetingBaas bot ${existingMeeting.meetingBaasId}...`);
+          
+          const { MeetingBaasBotService } = await import('../services/meetingbaas/bot.service');
+          const botService = new MeetingBaasBotService();
+          
+          await botService.endBot(existingMeeting.meetingBaasId);
+          
+          console.log(`✅ Successfully ended MeetingBaas bot for meeting ${meetingId}`);
         } catch (botError) {
-          console.error(`Error cleaning up MeetingBaas bot ${existingMeeting.meetingBaasId}:`, botError);
+          console.error(`❌ Error cleaning up MeetingBaas bot ${existingMeeting.meetingBaasId}:`, botError);
           // Continue with deletion even if bot cleanup fails
         }
       }
-
-      // Clean up calendar event if it exists
-      if (existingMeeting.calendarEventId) {
-        try {
-          // TODO: Implement calendar event cleanup when MeetingBaas calendar service supports it
-          console.log(`Meeting has calendar event ${existingMeeting.calendarEventId} - cleanup not yet implemented`);
-        } catch (calendarError) {
-          console.error(`Error cleaning up calendar event ${existingMeeting.calendarEventId}:`, calendarError);
-          // Continue with deletion even if calendar cleanup fails
-        }
-      }
       
-      // Step 3: Delete meeting from database
+      // Delete meeting from database
       await prisma.meeting.delete({
         where: { id: meetingId }
       });
       
-      console.log(`Successfully deleted meeting ${meetingId} and cleaned up associated resources`);
+      console.log(`✅ Successfully deleted meeting ${meetingId} and cleaned up associated resources`);
       return res.status(204).send();
     } catch (error) {
       console.error('Error deleting meeting:', error);

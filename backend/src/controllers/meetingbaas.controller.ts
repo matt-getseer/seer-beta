@@ -498,17 +498,54 @@ export class MeetingBaasController {
       const rawBody = JSON.stringify(req.body);
       const event = req.body;
 
-      if (!event.event_type || !event.bot_id) {
+      // Enhanced logging for debugging
+      console.log('🔔 WEBHOOK RECEIVED:', {
+        event: event.event,
+        botId: event.data?.bot_id,
+        statusCode: event.data?.status?.code,
+        timestamp: new Date().toISOString(),
+        headers: {
+          'x-meetingbaas-signature': signature ? 'present' : 'missing',
+          'content-type': req.headers['content-type'],
+        }
+      });
+
+      if (!event.event) {
+        console.error('❌ Invalid webhook: missing event field');
         return res.status(400).json({ 
-          error: 'Invalid webhook payload: missing event_type or bot_id' 
+          error: 'Invalid webhook payload: missing event field',
+          received: event
         });
       }
 
+      // Handle legacy event format (bot_id at root level)
+      if (!event.data?.bot_id && event.bot_id) {
+        console.log('🔄 Converting legacy webhook format');
+        event.data = { ...event.data, bot_id: event.bot_id };
+      }
+
+      if (!event.data?.bot_id && event.event !== 'calendar.sync_events') {
+        console.error('❌ Invalid webhook: missing bot_id');
+        return res.status(400).json({ 
+          error: 'Invalid webhook payload: missing bot_id',
+          received: event
+        });
+      }
+
+      console.log('⚡ Processing webhook with new service...');
       const result = await this.webhookService.processWithRetry(
         event,
         rawBody,
         signature
       );
+
+      console.log('✅ Webhook processing result:', {
+        success: result.success,
+        message: result.message,
+        processed: result.processed,
+        meetingId: result.meetingId,
+        botId: result.botId
+      });
 
       if (result.success) {
         res.json({
@@ -523,7 +560,7 @@ export class MeetingBaasController {
         });
       }
     } catch (error) {
-      console.error('Error handling webhook:', error);
+      console.error('💥 Error handling webhook:', error);
       res.status(500).json({
         error: 'Failed to process webhook',
         message: error instanceof Error ? error.message : String(error),

@@ -13,7 +13,8 @@ export const MeetingBaasConfig = {
     recordingMode: "speaker_view" as const,
     speechToText: {
       provider: "Default" as const,
-      apiKey: process.env.GLADIA_API_KEY,
+      enabled: true, // Always enable transcription with Default provider
+      apiKey: process.env.GLADIA_API_KEY, // Optional for other providers
     },
     automaticLeave: {
       nooneJoinedTimeout: 300, // 5 minutes

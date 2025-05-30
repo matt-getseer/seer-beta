@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Pause, Warning } from 'phosphor-react';
 import SpeakerTimeline from './SpeakerTimeline';
-import { parseTranscriptToSpeakerData } from '../utils/transcriptParser';
+import { parseMeetingBaasTranscriptToSpeakerData } from '../utils/transcriptParser';
 import type { SpeakerData } from '../utils/transcriptParser';
 
 interface VideoPlayerProps {
@@ -21,7 +21,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, transcript }) => {
   // Parse transcript when duration changes or transcript updates
   useEffect(() => {
     if (duration > 0 && transcript) {
-      const speakerData = parseTranscriptToSpeakerData(transcript, duration);
+      const speakerData = parseMeetingBaasTranscriptToSpeakerData(transcript, duration);
       setSpeakers(speakerData);
     }
   }, [transcript, duration]);

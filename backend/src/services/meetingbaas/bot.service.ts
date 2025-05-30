@@ -13,7 +13,7 @@ export interface BotCreationParams {
   recordingMode?: string;
   speechToText?: {
     provider: string;
-    apiKey: string;
+    apiKey?: string;
   };
   automaticLeave?: {
     nooneJoinedTimeout: number;
@@ -68,8 +68,9 @@ export class MeetingBaasBotService {
         reserved: false,
       });
 
-      const botId = botResponse.botId;
+      const botId = botResponse.botId || (botResponse as any).bot_id;
       if (!botId) {
+        console.error('Bot response:', botResponse);
         throw new Error('Bot creation failed: No bot ID returned');
       }
 
@@ -261,9 +262,11 @@ export class MeetingBaasBotService {
       botName: options?.customBotName || MeetingBaasConfig.bot.defaultName,
       webhookUrl: options?.customWebhookUrl || MeetingBaasConfig.bot.defaultWebhookUrl,
       recordingMode: MeetingBaasConfig.bot.recordingMode,
-      speechToText: MeetingBaasConfig.bot.speechToText.apiKey ? {
+      speechToText: MeetingBaasConfig.bot.speechToText.enabled ? {
         provider: MeetingBaasConfig.bot.speechToText.provider,
-        apiKey: MeetingBaasConfig.bot.speechToText.apiKey,
+        ...(MeetingBaasConfig.bot.speechToText.apiKey ? {
+          apiKey: MeetingBaasConfig.bot.speechToText.apiKey,
+        } : {})
       } : undefined,
       automaticLeave: MeetingBaasConfig.bot.automaticLeave,
       extra: {
@@ -428,9 +431,11 @@ export class MeetingBaasBotService {
       bot_name: MeetingBaasConfig.bot.defaultName,
       webhook_url: MeetingBaasConfig.bot.defaultWebhookUrl,
       recording_mode: MeetingBaasConfig.bot.recordingMode,
-      speech_to_text: MeetingBaasConfig.bot.speechToText.apiKey ? {
+      speech_to_text: MeetingBaasConfig.bot.speechToText.enabled ? {
         provider: MeetingBaasConfig.bot.speechToText.provider,
-        api_key: MeetingBaasConfig.bot.speechToText.apiKey,
+        ...(MeetingBaasConfig.bot.speechToText.apiKey ? {
+          apiKey: MeetingBaasConfig.bot.speechToText.apiKey,
+        } : {})
       } : undefined,
       automatic_leave: MeetingBaasConfig.bot.automaticLeave,
       extra: {

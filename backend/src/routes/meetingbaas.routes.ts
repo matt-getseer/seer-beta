@@ -29,5 +29,7 @@ router.post('/bots/:botId/retranscribe', authenticate, meetingBaasController.ret
 
 // Webhook Routes (no authentication required for webhooks)
 router.post('/webhooks', meetingBaasController.handleWebhook);
+// Temporarily disabled webhook auth for testing:
+// router.post('/webhooks', verifyMeetingBaasWebhook, meetingBaasController.handleWebhook);
 
 export default router; 

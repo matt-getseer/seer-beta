@@ -344,9 +344,9 @@ const Meetings = () => {
                     <th 
                       scope="col" 
                       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('date')}
+                      onClick={() => handleSort('teamMember')}
                     >
-                      Date {renderSortIndicator('date')}
+                      Team member {renderSortIndicator('teamMember')}
                     </th>
                     <th 
                       scope="col" 
@@ -358,16 +358,9 @@ const Meetings = () => {
                     <th 
                       scope="col" 
                       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('teamMember')}
+                      onClick={() => handleSort('date')}
                     >
-                      Team member {renderSortIndicator('teamMember')}
-                    </th>
-                    <th 
-                      scope="col" 
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('duration')}
-                    >
-                      Duration {renderSortIndicator('duration')}
+                      Date {renderSortIndicator('date')}
                     </th>
                     <th 
                       scope="col" 
@@ -386,7 +379,7 @@ const Meetings = () => {
                   {paginatedMeetings.map((meeting) => (
                     <tr key={meeting.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
-                        {meeting.date}
+                        {meeting.teamMember}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-base font-medium text-[#171717]">
@@ -396,10 +389,7 @@ const Meetings = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
-                        {meeting.teamMember}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-base text-gray-500">
-                        {meeting.duration}
+                        {meeting.date}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <StatusBadge 

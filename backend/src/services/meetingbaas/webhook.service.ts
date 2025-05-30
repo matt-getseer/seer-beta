@@ -1,28 +1,60 @@
-import { prisma } from '../../utils/prisma';
-import { MeetingBaasConfig } from '../../config/meetingbaas.config';
 import crypto from 'crypto';
+import { prisma } from '../../utils/prisma';
 
 export interface WebhookEvent {
-  event_type: string;
-  bot_id: string;
-  meeting_url?: string;
+  event: string;
   data: any;
-  timestamp: string;
+  timestamp?: string;
   signature?: string;
 }
 
 export interface ProcessedWebhookResult {
   success: boolean;
   message: string;
-  meetingId?: string;
   processed: boolean;
+  meetingId?: string;
+  botId?: string;
 }
 
 /**
- * Enhanced webhook service for handling MeetingBaas events
+ * MeetingBaas webhook service implementing official webhook specification
+ * Based on: https://docs.meetingbaas.com/docs/api/getting-started/getting-the-data
  */
 export class MeetingBaasWebhookService {
   private readonly idempotencyCache = new Map<string, { timestamp: number; result: any }>();
+
+  /**
+   * Process incoming webhook event with retry mechanism
+   */
+  async processWithRetry(
+    event: WebhookEvent,
+    rawBody: string,
+    signature?: string,
+    maxRetries: number = 3
+  ): Promise<ProcessedWebhookResult> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.processWebhookEvent(event, rawBody, signature);
+      } catch (error) {
+        lastError = error as Error;
+        console.error(`🔄 Webhook processing attempt ${attempt}/${maxRetries} failed:`, error);
+        
+        if (attempt < maxRetries) {
+          // Exponential backoff: 1s, 2s, 4s
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    return {
+      success: false,
+      message: `Failed after ${maxRetries} attempts: ${lastError?.message}`,
+      processed: false
+    };
+  }
 
   /**
    * Process incoming webhook event
@@ -33,469 +65,403 @@ export class MeetingBaasWebhookService {
     signature?: string
   ): Promise<ProcessedWebhookResult> {
     try {
-      console.log(`Processing webhook event: ${event.event_type} for bot ${event.bot_id}`);
-
-      // Verify webhook signature if enabled
-      if (MeetingBaasConfig.webhook.verificationEnabled && signature) {
-        if (!this.verifyWebhookSignature(rawBody, signature)) {
-          console.error('Webhook signature verification failed');
-          return {
-            success: false,
-            message: 'Invalid webhook signature',
-            processed: false,
-          };
-        }
-      }
-
-      // Check for idempotency
+      // Generate idempotency key
       const idempotencyKey = this.generateIdempotencyKey(event);
-      const cachedResult = this.checkIdempotency(idempotencyKey);
-      if (cachedResult) {
-        console.log(`Webhook event already processed: ${idempotencyKey}`);
-        return {
-          success: true,
-          message: 'Event already processed',
-          processed: true,
-          ...cachedResult,
-        };
+      
+      // Check if we've already processed this event
+      const cached = this.idempotencyCache.get(idempotencyKey);
+      if (cached && Date.now() - cached.timestamp < 300000) { // 5 minutes
+        console.log(`⚡ Returning cached result for event: ${event.event}`);
+        return cached.result;
       }
 
-      // Process the event based on type
-      const result = await this.handleEventByType(event);
+      // Process based on event type
+      let result: ProcessedWebhookResult;
+      
+      switch (event.event) {
+        case 'bot.status_change':
+          result = await this.handleBotStatusChange(event);
+          break;
+          
+        case 'complete':
+          result = await this.handleBotComplete(event);
+          break;
+          
+        case 'failed':
+          result = await this.handleBotFailed(event);
+          break;
+          
+        case 'calendar.sync_events':
+          result = await this.handleCalendarSync(event);
+          break;
+          
+        default:
+          console.warn(`⚠️ Unknown webhook event type: ${event.event}`);
+          result = {
+            success: true,
+            message: `Unknown event type: ${event.event}`,
+            processed: false
+          };
+      }
 
-      // Cache the result for idempotency
-      this.cacheResult(idempotencyKey, result);
+      // Cache the result
+      this.idempotencyCache.set(idempotencyKey, {
+        timestamp: Date.now(),
+        result
+      });
 
       return result;
-
     } catch (error) {
-      console.error('Error processing webhook event:', error);
+      console.error('💥 Error processing webhook event:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle bot status change events
+   * Status codes: joining_call, in_waiting_room, in_call_not_recording, 
+   * in_call_recording, recording_paused, recording_resumed, call_ended, 
+   * bot_rejected, bot_removed, waiting_room_timeout, invalid_meeting_url, meeting_error
+   */
+  private async handleBotStatusChange(event: WebhookEvent): Promise<ProcessedWebhookResult> {
+    const { bot_id, status } = event.data;
+    const statusCode = status?.code;
+    const createdAt = status?.created_at;
+
+    console.log(`🤖 Bot Status Change: ${bot_id} -> ${statusCode}`);
+
+    if (!bot_id || !statusCode) {
       return {
         success: false,
-        message: `Failed to process webhook: ${error instanceof Error ? error.message : String(error)}`,
-        processed: false,
+        message: 'Invalid bot status change event: missing bot_id or status.code',
+        processed: false
       };
     }
-  }
 
-  /**
-   * Handle webhook event based on its type
-   */
-  private async handleEventByType(event: WebhookEvent): Promise<ProcessedWebhookResult> {
-    switch (event.event_type) {
-      case 'bot_join_call':
-        return await this.handleBotJoinCall(event);
-      
-      case 'bot_leave_call':
-        return await this.handleBotLeaveCall(event);
-      
-      case 'recording_ready':
-        return await this.handleRecordingReady(event);
-      
-      case 'transcript_ready':
-        return await this.handleTranscriptReady(event);
-      
-      case 'bot_error':
-        return await this.handleBotError(event);
-      
-      case 'bot_waiting_room':
-        return await this.handleBotWaitingRoom(event);
-      
-      case 'bot_admitted':
-        return await this.handleBotAdmitted(event);
-      
-      default:
-        console.warn(`Unknown webhook event type: ${event.event_type}`);
-        return {
-          success: true,
-          message: `Unknown event type: ${event.event_type}`,
-          processed: true,
-        };
-    }
-  }
-
-  /**
-   * Handle bot joining call
-   */
-  private async handleBotJoinCall(event: WebhookEvent): Promise<ProcessedWebhookResult> {
     try {
-      const meeting = await prisma.meeting.findUnique({
-        where: { meetingBaasId: event.bot_id },
+      // Find the meeting by MeetingBaas bot ID
+      const meeting = await prisma.meeting.findFirst({
+        where: { meetingBaasId: bot_id }
       });
 
-      if (meeting) {
-        await prisma.meeting.update({
-          where: { meetingBaasId: event.bot_id },
-          data: {
-            status: 'in_progress',
-            processingStatus: 'processing',
-            updatedAt: new Date(),
-          },
-        });
-
-        console.log(`Bot joined call for meeting ${meeting.id}`);
+      if (!meeting) {
+        console.warn(`⚠️ No meeting found for bot ID: ${bot_id}`);
         return {
           success: true,
-          message: 'Bot joined call successfully',
-          meetingId: meeting.id,
-          processed: true,
+          message: `No meeting found for bot ID: ${bot_id}`,
+          processed: false,
+          botId: bot_id
         };
+      }
+
+      // Map status codes to our internal status
+      const statusMapping: Record<string, string> = {
+        'joining_call': 'joining',
+        'in_waiting_room': 'waiting',
+        'in_call_not_recording': 'in_call',
+        'in_call_recording': 'recording',
+        'recording_paused': 'paused',
+        'recording_resumed': 'recording',
+        'call_ended': 'completed',
+        'bot_rejected': 'failed',
+        'bot_removed': 'failed',
+        'waiting_room_timeout': 'failed',
+        'invalid_meeting_url': 'failed',
+        'meeting_error': 'failed'
+      };
+
+      const internalStatus = statusMapping[statusCode] || 'unknown';
+
+      // Update meeting status
+      await prisma.meeting.update({
+        where: { id: meeting.id },
+        data: {
+          status: internalStatus,
+          updatedAt: new Date()
+        }
+      });
+
+      // Log status for visibility
+      console.log(`✅ Updated meeting ${meeting.id} status: ${statusCode} -> ${internalStatus}`);
+
+      // Handle special status codes
+      if (statusCode === 'in_call_recording' && status.start_time) {
+        console.log(`🎥 Recording started at: ${status.start_time}`);
+      }
+
+      if (statusCode === 'meeting_error' && status.error_message) {
+        console.error(`❌ Meeting error: ${status.error_message} (Type: ${status.error_type})`);
       }
 
       return {
         success: true,
-        message: 'Bot joined call (no matching meeting found)',
+        message: `Bot status updated: ${statusCode}`,
         processed: true,
+        meetingId: meeting.id,
+        botId: bot_id
       };
+
     } catch (error) {
-      console.error('Error handling bot join call:', error);
+      console.error('💥 Error handling bot status change:', error);
       throw error;
     }
   }
 
   /**
-   * Handle bot leaving call
+   * Handle bot completion events (successful recording)
    */
-  private async handleBotLeaveCall(event: WebhookEvent): Promise<ProcessedWebhookResult> {
+  private async handleBotComplete(event: WebhookEvent): Promise<ProcessedWebhookResult> {
+    const { bot_id, mp4, speakers, transcript } = event.data;
+
+    console.log(`✅ Bot Complete: ${bot_id}`);
+
+    if (!bot_id) {
+      return {
+        success: false,
+        message: 'Invalid complete event: missing bot_id',
+        processed: false
+      };
+    }
+
     try {
-      const meeting = await prisma.meeting.findUnique({
-        where: { meetingBaasId: event.bot_id },
+      // Find the meeting by MeetingBaas bot ID
+      const meeting = await prisma.meeting.findFirst({
+        where: { meetingBaasId: bot_id }
       });
 
-      if (meeting) {
-        await prisma.meeting.update({
-          where: { meetingBaasId: event.bot_id },
-          data: {
-            status: 'completed',
-            updatedAt: new Date(),
-          },
-        });
-
-        console.log(`Bot left call for meeting ${meeting.id}`);
+      if (!meeting) {
+        console.warn(`⚠️ No meeting found for bot ID: ${bot_id}`);
         return {
           success: true,
-          message: 'Bot left call successfully',
-          meetingId: meeting.id,
-          processed: true,
+          message: `No meeting found for bot ID: ${bot_id}`,
+          processed: false,
+          botId: bot_id
         };
       }
 
-      return {
-        success: true,
-        message: 'Bot left call (no matching meeting found)',
-        processed: true,
+      // Update meeting with completion data
+      const updateData: any = {
+        status: 'completed',
+        processingStatus: 'processing', // Set to processing while we run NLP
+        updatedAt: new Date()
       };
-    } catch (error) {
-      console.error('Error handling bot leave call:', error);
-      throw error;
-    }
-  }
 
-  /**
-   * Handle recording ready
-   */
-  private async handleRecordingReady(event: WebhookEvent): Promise<ProcessedWebhookResult> {
-    try {
-      const { mp4_s3_path, audio_s3_path, duration } = event.data;
+      if (mp4) {
+        updateData.recordingUrl = mp4;
+        console.log(`🎬 Recording URL received (valid for 2 hours): ${mp4.substring(0, 50)}...`);
+      }
 
-      const meeting = await prisma.meeting.findUnique({
-        where: { meetingBaasId: event.bot_id },
+      if (speakers && Array.isArray(speakers)) {
+        updateData.speakers = speakers;
+        console.log(`👥 Speakers detected: ${speakers.join(', ')}`);
+      }
+
+      let transcriptText = '';
+      if (transcript && Array.isArray(transcript)) {
+        updateData.transcript = JSON.stringify(transcript);
+        console.log(`📝 Transcript received with ${transcript.length} segments`);
+        
+        // Convert MeetingBaas transcript format to plain text for NLP processing
+        transcriptText = transcript.map((segment: any) => {
+          if (segment.speaker && segment.words && Array.isArray(segment.words)) {
+            const text = segment.words.map((word: any) => word.word).join('');
+            return `${segment.speaker}: ${text}`;
+          }
+          return '';
+        }).filter(Boolean).join('\n\n');
+      }
+
+      await prisma.meeting.update({
+        where: { id: meeting.id },
+        data: updateData
       });
 
-      if (meeting) {
+      console.log(`✅ Meeting ${meeting.id} marked as completed with recording data`);
+
+      // Trigger NLP processing if we have a transcript
+      if (transcriptText.trim()) {
+        console.log(`🧠 Starting NLP processing for meeting ${meeting.id}...`);
+        
+        // Import and run NLP processing asynchronously
+        try {
+          const { MeetingProcessorService } = await import('../meeting-processor.service');
+          
+          // Process the transcript with NLP
+          const nlpResult = await MeetingProcessorService.processMeetingTranscript(
+            meeting.id,
+            transcriptText,
+            meeting.meetingType as any || 'DEFAULT'
+          );
+
+          // Update meeting with NLP results
+          await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
+              processingStatus: 'completed',
+              executiveSummary: nlpResult.executiveSummary,
+              wins: nlpResult.wins,
+              areasForSupport: nlpResult.areasForSupport,
+              updatedAt: new Date()
+            }
+          });
+
+          console.log(`🎉 NLP processing completed for meeting ${meeting.id}`);
+        } catch (nlpError) {
+          console.error(`❌ NLP processing failed for meeting ${meeting.id}:`, nlpError);
+          
+          // Mark processing as completed even if NLP fails, so the meeting isn't stuck
+          await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
+              processingStatus: 'completed',
+              updatedAt: new Date()
+            }
+          });
+        }
+      } else {
+        // No transcript to process, mark as completed
         await prisma.meeting.update({
-          where: { meetingBaasId: event.bot_id },
+          where: { id: meeting.id },
           data: {
-            recordingUrl: mp4_s3_path,
-            duration: duration ? parseInt(duration) : undefined,
             processingStatus: 'completed',
-            updatedAt: new Date(),
-          },
+            updatedAt: new Date()
+          }
         });
+        console.log(`⚠️ No transcript available for NLP processing for meeting ${meeting.id}`);
+      }
 
-        console.log(`Recording ready for meeting ${meeting.id}: ${mp4_s3_path}`);
+      return {
+        success: true,
+        message: 'Meeting completed successfully',
+        processed: true,
+        meetingId: meeting.id,
+        botId: bot_id
+      };
+
+    } catch (error) {
+      console.error('💥 Error handling bot completion:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle bot failure events
+   */
+  private async handleBotFailed(event: WebhookEvent): Promise<ProcessedWebhookResult> {
+    const { bot_id, error: errorType } = event.data;
+
+    console.log(`❌ Bot Failed: ${bot_id} - ${errorType}`);
+
+    if (!bot_id) {
+      return {
+        success: false,
+        message: 'Invalid failed event: missing bot_id',
+        processed: false
+      };
+    }
+
+    try {
+      // Find the meeting by MeetingBaas bot ID
+      const meeting = await prisma.meeting.findFirst({
+        where: { meetingBaasId: bot_id }
+      });
+
+      if (!meeting) {
+        console.warn(`⚠️ No meeting found for bot ID: ${bot_id}`);
         return {
           success: true,
-          message: 'Recording processed successfully',
-          meetingId: meeting.id,
-          processed: true,
+          message: `No meeting found for bot ID: ${bot_id}`,
+          processed: false,
+          botId: bot_id
         };
       }
 
-      return {
-        success: true,
-        message: 'Recording ready (no matching meeting found)',
-        processed: true,
-      };
-    } catch (error) {
-      console.error('Error handling recording ready:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle transcript ready
-   */
-  private async handleTranscriptReady(event: WebhookEvent): Promise<ProcessedWebhookResult> {
-    try {
-      const { transcript, transcript_s3_path, speakers } = event.data;
-
-      const meeting = await prisma.meeting.findUnique({
-        where: { meetingBaasId: event.bot_id },
+      // Update meeting status to failed
+      await prisma.meeting.update({
+        where: { id: meeting.id },
+        data: {
+          status: 'failed',
+          updatedAt: new Date()
+        }
       });
 
-      if (meeting) {
-        // Store transcript data
-        const transcriptData = {
-          transcript: transcript || null,
-          processingStatus: 'completed' as const,
-          updatedAt: new Date(),
-        };
+      // Log the specific error type
+      const errorMessages: Record<string, string> = {
+        'CannotJoinMeeting': 'Bot could not join the meeting (likely requires login)',
+        'TimeoutWaitingToStart': 'Bot timed out waiting to be accepted',
+        'BotNotAccepted': 'Bot was refused entry to the meeting',
+        'BotRemoved': 'Bot was removed from the meeting by a participant',
+        'InternalError': 'An unexpected error occurred',
+        'InvalidMeetingUrl': 'The meeting URL provided is not valid'
+      };
 
-        await prisma.meeting.update({
-          where: { meetingBaasId: event.bot_id },
-          data: transcriptData,
-        });
-
-        console.log(`Transcript ready for meeting ${meeting.id}`);
-        return {
-          success: true,
-          message: 'Transcript processed successfully',
-          meetingId: meeting.id,
-          processed: true,
-        };
-      }
+      const errorMessage = errorMessages[errorType] || `Unknown error: ${errorType}`;
+      console.error(`❌ Meeting ${meeting.id} failed: ${errorMessage}`);
 
       return {
         success: true,
-        message: 'Transcript ready (no matching meeting found)',
+        message: `Meeting failed: ${errorMessage}`,
         processed: true,
+        meetingId: meeting.id,
+        botId: bot_id
       };
+
     } catch (error) {
-      console.error('Error handling transcript ready:', error);
+      console.error('💥 Error handling bot failure:', error);
       throw error;
     }
   }
 
   /**
-   * Handle bot error
+   * Handle calendar sync events
    */
-  private async handleBotError(event: WebhookEvent): Promise<ProcessedWebhookResult> {
-    try {
-      const { error_message, error_code } = event.data;
+  private async handleCalendarSync(event: WebhookEvent): Promise<ProcessedWebhookResult> {
+    const { calendar_id, last_updated_ts, affected_event_uuids } = event.data;
 
-      const meeting = await prisma.meeting.findUnique({
-        where: { meetingBaasId: event.bot_id },
-      });
+    console.log(`📅 Calendar Sync: ${calendar_id} - ${affected_event_uuids?.length || 0} events affected`);
 
-      if (meeting) {
-        await prisma.meeting.update({
-          where: { meetingBaasId: event.bot_id },
-          data: {
-            status: 'failed',
-            processingStatus: 'failed',
-            updatedAt: new Date(),
-          },
-        });
+    // For now, just log the calendar sync event
+    // In the future, this could trigger business logic to:
+    // - Check for new meetings to record
+    // - Update existing meeting schedules
+    // - Cancel recordings for deleted meetings
+    
+    console.log(`📅 Calendar sync event received but handling not yet implemented`);
+    console.log(`   Calendar ID: ${calendar_id}`);
+    console.log(`   Last Updated: ${last_updated_ts}`);
+    console.log(`   Affected Events: ${affected_event_uuids?.join(', ') || 'none'}`);
 
-        console.error(`Bot error for meeting ${meeting.id}: ${error_message} (${error_code})`);
-        return {
-          success: true,
-          message: 'Bot error processed',
-          meetingId: meeting.id,
-          processed: true,
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Bot error (no matching meeting found)',
-        processed: true,
-      };
-    } catch (error) {
-      console.error('Error handling bot error:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle bot waiting room
-   */
-  private async handleBotWaitingRoom(event: WebhookEvent): Promise<ProcessedWebhookResult> {
-    try {
-      const meeting = await prisma.meeting.findUnique({
-        where: { meetingBaasId: event.bot_id },
-      });
-
-      if (meeting) {
-        await prisma.meeting.update({
-          where: { meetingBaasId: event.bot_id },
-          data: {
-            status: 'waiting',
-            processingStatus: 'waiting',
-            updatedAt: new Date(),
-          },
-        });
-
-        console.log(`Bot in waiting room for meeting ${meeting.id}`);
-      }
-
-      return {
-        success: true,
-        message: 'Bot waiting room status updated',
-        meetingId: meeting?.id,
-        processed: true,
-      };
-    } catch (error) {
-      console.error('Error handling bot waiting room:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle bot admitted to call
-   */
-  private async handleBotAdmitted(event: WebhookEvent): Promise<ProcessedWebhookResult> {
-    try {
-      const meeting = await prisma.meeting.findUnique({
-        where: { meetingBaasId: event.bot_id },
-      });
-
-      if (meeting) {
-        await prisma.meeting.update({
-          where: { meetingBaasId: event.bot_id },
-          data: {
-            status: 'in_progress',
-            processingStatus: 'processing',
-            updatedAt: new Date(),
-          },
-        });
-
-        console.log(`Bot admitted to call for meeting ${meeting.id}`);
-      }
-
-      return {
-        success: true,
-        message: 'Bot admitted to call',
-        meetingId: meeting?.id,
-        processed: true,
-      };
-    } catch (error) {
-      console.error('Error handling bot admitted:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Verify webhook signature
-   */
-  private verifyWebhookSignature(rawBody: string, signature: string): boolean {
-    try {
-      // Implement signature verification based on MeetingBaas documentation
-      // This is a placeholder - adjust based on actual signature format
-      const expectedSignature = crypto
-        .createHmac('sha256', MeetingBaasConfig.client.apiKey)
-        .update(rawBody)
-        .digest('hex');
-
-      return crypto.timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignature)
-      );
-    } catch (error) {
-      console.error('Error verifying webhook signature:', error);
-      return false;
-    }
+    return {
+      success: true,
+      message: 'Calendar sync event received but handling not yet implemented',
+      processed: false
+    };
   }
 
   /**
    * Generate idempotency key for webhook event
    */
   private generateIdempotencyKey(event: WebhookEvent): string {
+    const botId = event.data?.bot_id || 'unknown';
+    const timestamp = event.timestamp || new Date().toISOString();
+    
     return crypto
       .createHash('sha256')
-      .update(`${event.event_type}-${event.bot_id}-${event.timestamp}`)
+      .update(`${event.event}-${botId}-${timestamp}`)
       .digest('hex');
   }
 
   /**
-   * Check if event has already been processed (idempotency)
+   * Clean up old idempotency cache entries (call periodically)
    */
-  private checkIdempotency(key: string): any | null {
-    const cached = this.idempotencyCache.get(key);
-    if (cached) {
-      const now = Date.now();
-      if (now - cached.timestamp < MeetingBaasConfig.webhook.idempotencyTtl) {
-        return cached.result;
-      } else {
-        // Clean up expired entry
-        this.idempotencyCache.delete(key);
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Cache result for idempotency
-   */
-  private cacheResult(key: string, result: any): void {
-    this.idempotencyCache.set(key, {
-      timestamp: Date.now(),
-      result,
-    });
-
-    // Clean up old entries periodically
-    if (this.idempotencyCache.size > 1000) {
-      this.cleanupIdempotencyCache();
-    }
-  }
-
-  /**
-   * Clean up expired idempotency cache entries
-   */
-  private cleanupIdempotencyCache(): void {
+  public cleanupCache(): void {
     const now = Date.now();
-    const ttl = MeetingBaasConfig.webhook.idempotencyTtl;
+    const maxAge = 300000; // 5 minutes
 
     for (const [key, value] of this.idempotencyCache.entries()) {
-      if (now - value.timestamp > ttl) {
+      if (now - value.timestamp > maxAge) {
         this.idempotencyCache.delete(key);
       }
     }
-  }
-
-  /**
-   * Retry webhook processing with exponential backoff
-   */
-  async processWithRetry(
-    event: WebhookEvent,
-    rawBody: string,
-    signature?: string,
-    maxAttempts: number = MeetingBaasConfig.webhook.retryAttempts
-  ): Promise<ProcessedWebhookResult> {
-    let lastError: any;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        return await this.processWebhookEvent(event, rawBody, signature);
-      } catch (error) {
-        lastError = error;
-        
-        if (attempt === maxAttempts) {
-          break;
-        }
-
-        const delay = MeetingBaasConfig.webhook.retryDelay * Math.pow(2, attempt - 1);
-        console.warn(`Webhook processing attempt ${attempt} failed, retrying in ${delay}ms:`, error);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-
-    console.error('All webhook processing attempts failed:', lastError);
-    return {
-      success: false,
-      message: `Failed after ${maxAttempts} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
-      processed: false,
-    };
   }
 } 

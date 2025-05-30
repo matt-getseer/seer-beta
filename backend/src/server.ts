@@ -9,6 +9,7 @@ import userRoutes from './routes/user.routes';
 import meetingRoutes from './routes/meeting.routes';
 import authRoutes from './routes/auth.routes';
 import meetingBaasRoutes from './routes/meetingbaas.routes';
+import calendarRoutes from './routes/calendar.routes';
 import { authenticate } from './middleware/auth.middleware';
 import { meetingBaasScheduler } from './services/meetingbaas/scheduler.service';
 
@@ -83,6 +84,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/meetings', meetingRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/meetingbaas', meetingBaasRoutes);
+app.use('/api/calendar', calendarRoutes);
 
 // Basic route
 app.get('/', (req, res) => {
